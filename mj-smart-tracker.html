@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MJ Card Tracker - Smart Collection Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        .autocomplete-dropdown {
+            position: absolute;
+            background: #1f2937;
+            border: 1px solid #374151;
+            border-radius: 0.5rem;
+            max-height: 300px;
+            overflow-y: auto;
+            z-index: 50;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.5);
+        }
+        .autocomplete-item {
+            padding: 0.75rem;
+            cursor: pointer;
+            border-bottom: 1px solid #374151;
+        }
+        .autocomplete-item:hover {
+            background: #374151;
+        }
+        .scrollable-table {
+            max-height: calc(100vh - 400px);
+            overflow-y: auto;
+        }
+        .sticky-header th {
+            position: sticky;
+            top: 0;
+            background: #1f2937;
+            z-index: 10;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        function App() {
+            // My collection state (what I actually own)
+            const [myCollection, setMyCollection] = useState([]);
+            
+            // Reference database (loaded lazily for validation/search)
+            const [referenceDB, setReferenceDB] = useState(null);
+            const [dbLoading, setDbLoading] = useState(false);
+            
+            // Add card form state
+            const [searchInput, setSearchInput] = useState('');
+            const [suggestions, setSuggestions] = useState([]);
+            const [showSuggestions, setShowSuggestions] = useState(false);
+            const [selectedCard, setSelectedCard] = useState(null);
+            const [quantity, setQuantity] = useState(1);
+            const [purchasePrice, setPurchasePrice] = useState('');
+            const [notes, setNotes] = useState('');
+            const [grade, setGrade] = useState('');
+            
+            // Filter state
+            const [filterText, setFilterText] = useState('');
+            const [sortField, setSortField] = useState('dateAdded');
+            const [sortDirection, setSortDirection] = useState('desc');
+            
+            // UI state
+            const [editingCard, setEditingCard] = useState(null);
+            const [showAddModal, setShowAddModal] = useState(false);
+            
+            const searchInputRef = useRef(null);
+
+            useEffect(() => {
+                loadMyCollection();
+            }, []);
+
+            const loadMyCollection = async () => {
+                try {
+                    const result = await window.storage.get('mj-my-collection');
+                    if (result && result.value) {
+                        setMyCollection(JSON.parse(result.value));
+                    }
+                } catch (error) {
+                    console.log('Starting fresh collection');
+                    setMyCollection([]);
+                }
+            };
+
+            const saveMyCollection = async (newCollection) => {
+                try {
+                    await window.storage.set('mj-my-collection', JSON.stringify(newCollection));
+                    setMyCollection(newCollection);
+                } catch (error) {
+                    console.error('Failed to save collection:', error);
+                    alert('Failed to save. Please try again.');
+                }
+            };
+
+            const loadReferenceDB = async () => {
+                if (referenceDB) return; // Already loaded
+                
+                setDbLoading(true);
+                try {
+                    // Try to load from external file
+                    const response = await fetch('./jordan_cards_database.json');
+                    if (response.ok) {
+                        const data = await response.json();
+                        setReferenceDB(data);
+                        console.log(`✓ Loaded ${data.length} reference cards from database file`);
+                        alert(`✓ Database loaded successfully!\n\n${data.length.toLocaleString()} Michael Jordan cards are now searchable.`);
+                    } else {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                } catch (error) {
+                    console.error('Failed to load external database:', error);
+                    
+                    // Check if it's a CORS error (opening HTML file directly)
+                    if (error.message.includes('fetch') || error instanceof TypeError) {
+                        alert('⚠️ Cannot load database file\n\nYou need to use a web server to load the full database.\n\nOptions:\n1. Use: python -m http.server 8000\n2. Or use the sample data (12 cards) for testing\n\nClick OK to use sample data for now.');
+                        setReferenceDB(generateSampleReferenceDB());
+                    } else {
+                        alert('Error loading database. Using sample data (12 cards).');
+                        setReferenceDB(generateSampleReferenceDB());
+                    }
+                }
+                setDbLoading(false);
+            };
+
+            const generateSampleReferenceDB = () => {
+                return [
+                    { description: '1986-87 Fleer 57 Michael Jordan RC', year: '1986', brand: 'Fleer', cardNumber: '57', serialNumber: '' },
+                    { description: '1986-87 Fleer Sticker 8 Michael Jordan', year: '1986', brand: 'Fleer', cardNumber: '8', serialNumber: '' },
+                    { description: '1984-85 Star 101 Michael Jordan RC', year: '1984', brand: 'Star', cardNumber: '101', serialNumber: '' },
+                    { description: '1997-98 Metal Universe Precious Metal Gems 23 Michael Jordan', year: '1997', brand: 'Metal Universe', cardNumber: '23', serialNumber: '/10' },
+                    { description: '1997-98 Upper Deck Game Jersey Michael Jordan', year: '1997', brand: 'Upper Deck', cardNumber: 'GJ13', serialNumber: '' },
+                    { description: '2003-04 Upper Deck Exquisite Collection 23 Michael Jordan', year: '2003', brand: 'Exquisite', cardNumber: '23', serialNumber: '/23' },
+                    { description: '1996-97 Topps Chrome 139 Michael Jordan', year: '1996', brand: 'Topps Chrome', cardNumber: '139', serialNumber: '' },
+                    { description: '1998-99 SPx Finite 100 Michael Jordan', year: '1998', brand: 'SPx', cardNumber: '100', serialNumber: '/5000' },
+                    { description: '1989-90 Hoops 200 Michael Jordan', year: '1989', brand: 'Hoops', cardNumber: '200', serialNumber: '' },
+                    { description: '1990-91 Fleer 26 Michael Jordan', year: '1990', brand: 'Fleer', cardNumber: '26', serialNumber: '' },
+                    { description: '1995-96 Finest 229 Michael Jordan Refractor', year: '1995', brand: 'Finest', cardNumber: '229', serialNumber: '' },
+                    { description: '1997-98 Skybox Premium Star Rubies 23 Michael Jordan', year: '1997', brand: 'Skybox', cardNumber: '23', serialNumber: '' },
+                ];
+            };
+
+            // Search and suggest cards from reference DB
+            const handleSearchInput = async (value) => {
+                setSearchInput(value);
+                
+                if (value.length < 2) {
+                    setSuggestions([]);
+                    setShowSuggestions(false);
+                    return;
+                }
+
+                // Load reference DB if not loaded
+                if (!referenceDB) {
+                    await loadReferenceDB();
+                }
+
+                if (referenceDB) {
+                    const searchLower = value.toLowerCase();
+                    const searchTerms = searchLower.split(' ').filter(t => t.length > 0);
+                    
+                    const matches = referenceDB.filter(card => {
+                        const desc = card.description.toLowerCase();
+                        const year = String(card.year).toLowerCase();
+                        const brand = String(card.brand).toLowerCase();
+                        const cardNum = String(card.cardNumber).toLowerCase();
+                        const combined = `${desc} ${year} ${brand} ${cardNum}`;
+                        
+                        // Match if ALL search terms are found anywhere in the card data
+                        return searchTerms.every(term => combined.includes(term));
+                    }).slice(0, 20); // Increased to 20 suggestions
+                    
+                    setSuggestions(matches);
+                    setShowSuggestions(matches.length > 0);
+                }
+            };
+
+            const selectSuggestion = (card) => {
+                setSelectedCard(card);
+                setSearchInput(card.description);
+                setShowSuggestions(false);
+                setSuggestions([]);
+            };
+
+            const addCardToCollection = () => {
+                if (!searchInput.trim()) {
+                    alert('Please enter a card description');
+                    return;
+                }
+
+                const newCard = {
+                    id: Date.now().toString(),
+                    description: selectedCard ? selectedCard.description : searchInput,
+                    year: selectedCard?.year || '',
+                    brand: selectedCard?.brand || '',
+                    cardNumber: selectedCard?.cardNumber || '',
+                    serialNumber: selectedCard?.serialNumber || '',
+                    quantity: parseInt(quantity) || 1,
+                    purchasePrice: purchasePrice || '',
+                    grade: grade || '',
+                    notes: notes || '',
+                    dateAdded: new Date().toISOString(),
+                    validated: !!selectedCard
+                };
+
+                const updated = [...myCollection, newCard];
+                saveMyCollection(updated);
+                
+                // Reset form
+                resetForm();
+                setShowAddModal(false);
+            };
+
+            const resetForm = () => {
+                setSearchInput('');
+                setSelectedCard(null);
+                setQuantity(1);
+                setPurchasePrice('');
+                setGrade('');
+                setNotes('');
+                setSuggestions([]);
+                setShowSuggestions(false);
+            };
+
+            const updateCard = (id, updates) => {
+                const updated = myCollection.map(card => 
+                    card.id === id ? { ...card, ...updates } : card
+                );
+                saveMyCollection(updated);
+            };
+
+            const deleteCard = (id) => {
+                if (confirm('Are you sure you want to remove this card from your collection?')) {
+                    const updated = myCollection.filter(card => card.id !== id);
+                    saveMyCollection(updated);
+                }
+            };
+
+            const filteredCollection = useMemo(() => {
+                let filtered = myCollection.filter(card =>
+                    !filterText || 
+                    card.description.toLowerCase().includes(filterText.toLowerCase()) ||
+                    card.year.toLowerCase().includes(filterText.toLowerCase()) ||
+                    card.brand.toLowerCase().includes(filterText.toLowerCase())
+                );
+
+                filtered.sort((a, b) => {
+                    let aVal = a[sortField] || '';
+                    let bVal = b[sortField] || '';
+                    
+                    if (sortField === 'quantity' || sortField === 'purchasePrice') {
+                        aVal = parseFloat(aVal) || 0;
+                        bVal = parseFloat(bVal) || 0;
+                    }
+                    
+                    if (sortDirection === 'asc') {
+                        return aVal > bVal ? 1 : -1;
+                    } else {
+                        return aVal < bVal ? 1 : -1;
+                    }
+                });
+
+                return filtered;
+            }, [myCollection, filterText, sortField, sortDirection]);
+
+            const stats = useMemo(() => {
+                const totalCards = myCollection.reduce((sum, card) => sum + card.quantity, 0);
+                const totalValue = myCollection.reduce((sum, card) => {
+                    const price = parseFloat(card.purchasePrice) || 0;
+                    return sum + (price * card.quantity);
+                }, 0);
+                const validatedCards = myCollection.filter(card => card.validated).length;
+                
+                return {
+                    uniqueCards: myCollection.length,
+                    totalCards,
+                    totalValue: totalValue.toFixed(2),
+                    validatedCards
+                };
+            }, [myCollection]);
+
+            const searchCardImage = (card) => {
+                const query = `${card.year} ${card.brand} ${card.cardNumber} Michael Jordan card`.trim();
+                window.open(`https://www.google.com/search?tbm=isch&q=${encodeURIComponent(query)}`, '_blank');
+            };
+
+            const checkPrice = (card) => {
+                const query = `${card.year} ${card.brand} ${card.cardNumber} Michael Jordan`.trim();
+                window.open(`https://130point.com/sales/?s=${encodeURIComponent(query)}`, '_blank');
+            };
+
+            const handleSort = (field) => {
+                if (sortField === field) {
+                    setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                } else {
+                    setSortField(field);
+                    setSortDirection('asc');
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+                    {/* Header */}
+                    <div className="bg-gradient-to-r from-red-600 to-red-800 shadow-lg sticky top-0 z-20">
+                        <div className="max-w-7xl mx-auto px-4 py-6">
+                            <div className="flex items-center justify-between flex-wrap gap-4">
+                                <div>
+                                    <h1 className="text-3xl md:text-4xl font-bold text-white flex items-center">
+                                        <span className="mr-3">🏀</span>
+                                        My MJ Collection
+                                    </h1>
+                                    <p className="text-red-100 mt-1 text-sm">Smart Card Tracker with Validation</p>
+                                </div>
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                                    <div className="bg-white bg-opacity-20 rounded-lg p-3 backdrop-blur">
+                                        <div className="text-2xl font-bold text-white">{stats.uniqueCards}</div>
+                                        <div className="text-red-100 text-xs">Unique Cards</div>
+                                    </div>
+                                    <div className="bg-white bg-opacity-20 rounded-lg p-3 backdrop-blur">
+                                        <div className="text-2xl font-bold text-white">{stats.totalCards}</div>
+                                        <div className="text-red-100 text-xs">Total Cards</div>
+                                    </div>
+                                    <div className="bg-white bg-opacity-20 rounded-lg p-3 backdrop-blur">
+                                        <div className="text-2xl font-bold text-white">${stats.totalValue}</div>
+                                        <div className="text-red-100 text-xs">Total Value</div>
+                                    </div>
+                                    <div className="bg-white bg-opacity-20 rounded-lg p-3 backdrop-blur">
+                                        <div className="text-2xl font-bold text-white">{stats.validatedCards}</div>
+                                        <div className="text-red-100 text-xs">Validated</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="max-w-7xl mx-auto px-4 py-6">
+                        {/* Quick Actions */}
+                        <div className="flex flex-wrap gap-4 mb-6">
+                            <button
+                                onClick={() => setShowAddModal(true)}
+                                className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium shadow-lg flex items-center gap-2"
+                            >
+                                <span className="text-xl">+</span> Add Card to Collection
+                            </button>
+                            <button
+                                onClick={loadReferenceDB}
+                                disabled={dbLoading || referenceDB}
+                                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium shadow-lg disabled:opacity-50"
+                            >
+                                {dbLoading ? '⏳ Loading...' : referenceDB ? `✓ Database Loaded (${referenceDB.length.toLocaleString()} cards)` : '📚 Load Reference Database'}
+                            </button>
+                        </div>
+
+                        {/* Database Info */}
+                        {referenceDB && referenceDB.length < 100 && (
+                            <div className="bg-yellow-900 bg-opacity-50 border border-yellow-600 rounded-lg p-5 mb-6">
+                                <div className="flex items-start gap-4">
+                                    <div className="text-4xl">⚠️</div>
+                                    <div className="flex-1">
+                                        <div className="font-bold text-yellow-300 text-lg mb-2">Sample Data Only ({referenceDB.length} cards)</div>
+                                        <div className="text-yellow-200 mb-3">
+                                            You're using sample data instead of the full 16,232 card database. 
+                                            To load the complete database, you need to run a web server.
+                                        </div>
+                                        <div className="bg-black bg-opacity-30 rounded-lg p-3 mb-3">
+                                            <div className="text-yellow-100 font-mono text-sm mb-2">Quick Setup:</div>
+                                            <div className="text-white font-mono text-xs space-y-1">
+                                                <div>1. Open terminal/command prompt in the folder with your files</div>
+                                                <div>2. Run: <span className="bg-gray-800 px-2 py-1 rounded">python -m http.server 8000</span></div>
+                                                <div>3. Open: <span className="bg-gray-800 px-2 py-1 rounded">http://localhost:8000/mj-smart-tracker.html</span></div>
+                                                <div>4. Click "Load Reference Database" again</div>
+                                            </div>
+                                        </div>
+                                        <div className="text-xs text-yellow-300">
+                                            💡 You can still add cards manually with sample data, but autocomplete will be limited.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        
+                        {referenceDB && referenceDB.length >= 100 && (
+                            <div className="bg-gradient-to-r from-green-900 to-green-800 bg-opacity-50 border border-green-600 rounded-lg p-4 mb-6">
+                                <div className="flex items-center justify-between flex-wrap gap-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="text-3xl">✅</div>
+                                        <div>
+                                            <div className="font-bold text-white">Full Database Loaded!</div>
+                                            <div className="text-sm text-green-200">
+                                                {referenceDB.length.toLocaleString()} cards searchable • Autocomplete enabled • Click "Add Card" to search
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Filter */}
+                        <div className="bg-gray-800 rounded-lg shadow-xl p-4 mb-6">
+                            <div className="flex gap-4">
+                                <input
+                                    type="text"
+                                    value={filterText}
+                                    onChange={(e) => setFilterText(e.target.value)}
+                                    placeholder="🔍 Filter your collection..."
+                                    className="flex-1 px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600"
+                                />
+                                <button
+                                    onClick={() => setFilterText('')}
+                                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                                >
+                                    Clear
+                                </button>
+                            </div>
+                            <div className="mt-2 text-sm text-gray-400">
+                                Showing {filteredCollection.length} of {myCollection.length} cards in your collection
+                            </div>
+                        </div>
+
+                        {/* Collection Table */}
+                        {myCollection.length === 0 ? (
+                            <div className="bg-gray-800 rounded-lg shadow-xl p-12 text-center">
+                                <div className="text-6xl mb-4">🏀</div>
+                                <h2 className="text-2xl font-bold text-white mb-2">Start Your Collection</h2>
+                                <p className="text-gray-400 mb-6">Click "Add Card to Collection" to begin tracking your MJ cards</p>
+                                <button
+                                    onClick={() => setShowAddModal(true)}
+                                    className="px-8 py-4 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium text-lg"
+                                >
+                                    Add Your First Card
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="bg-gray-800 rounded-lg shadow-xl overflow-hidden">
+                                <div className="scrollable-table">
+                                    <table className="w-full">
+                                        <thead className="sticky-header">
+                                            <tr className="text-left text-sm font-semibold text-gray-300 border-b border-gray-700">
+                                                <th className="px-4 py-3 cursor-pointer hover:bg-gray-700" onClick={() => handleSort('description')}>
+                                                    Card {sortField === 'description' && (sortDirection === 'asc' ? '▲' : '▼')}
+                                                </th>
+                                                <th className="px-4 py-3 cursor-pointer hover:bg-gray-700" onClick={() => handleSort('year')}>
+                                                    Year {sortField === 'year' && (sortDirection === 'asc' ? '▲' : '▼')}
+                                                </th>
+                                                <th className="px-4 py-3 cursor-pointer hover:bg-gray-700" onClick={() => handleSort('brand')}>
+                                                    Brand {sortField === 'brand' && (sortDirection === 'asc' ? '▲' : '▼')}
+                                                </th>
+                                                <th className="px-4 py-3">Card #</th>
+                                                <th className="px-4 py-3 cursor-pointer hover:bg-gray-700" onClick={() => handleSort('grade')}>
+                                                    Grade {sortField === 'grade' && (sortDirection === 'asc' ? '▲' : '▼')}
+                                                </th>
+                                                <th className="px-4 py-3 text-center cursor-pointer hover:bg-gray-700" onClick={() => handleSort('quantity')}>
+                                                    Qty {sortField === 'quantity' && (sortDirection === 'asc' ? '▲' : '▼')}
+                                                </th>
+                                                <th className="px-4 py-3 cursor-pointer hover:bg-gray-700" onClick={() => handleSort('purchasePrice')}>
+                                                    Price {sortField === 'purchasePrice' && (sortDirection === 'asc' ? '▲' : '▼')}
+                                                </th>
+                                                <th className="px-4 py-3">Notes</th>
+                                                <th className="px-4 py-3">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-700">
+                                            {filteredCollection.map((card) => (
+                                                <tr key={card.id} className="hover:bg-gray-700 transition-colors">
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex items-center gap-2">
+                                                            {card.validated && <span className="text-green-400" title="Validated from database">✓</span>}
+                                                            <span className="text-sm">{card.description}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm text-gray-400">{card.year}</td>
+                                                    <td className="px-4 py-3 text-sm text-gray-400">{card.brand}</td>
+                                                    <td className="px-4 py-3 text-sm text-gray-400">{card.cardNumber}</td>
+                                                    <td className="px-4 py-3 text-sm">
+                                                        <input
+                                                            type="text"
+                                                            value={card.grade}
+                                                            onChange={(e) => updateCard(card.id, { grade: e.target.value })}
+                                                            placeholder="PSA/BGS"
+                                                            className="w-20 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-red-600"
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center">
+                                                        <input
+                                                            type="number"
+                                                            min="1"
+                                                            value={card.quantity}
+                                                            onChange={(e) => updateCard(card.id, { quantity: parseInt(e.target.value) || 1 })}
+                                                            className="w-16 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-center focus:outline-none focus:ring-1 focus:ring-red-600"
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <input
+                                                            type="text"
+                                                            value={card.purchasePrice}
+                                                            onChange={(e) => updateCard(card.id, { purchasePrice: e.target.value })}
+                                                            placeholder="$0.00"
+                                                            className="w-24 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-red-600"
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <input
+                                                            type="text"
+                                                            value={card.notes}
+                                                            onChange={(e) => updateCard(card.id, { notes: e.target.value })}
+                                                            placeholder="Notes..."
+                                                            className="w-32 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-red-600"
+                                                        />
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => searchCardImage(card)}
+                                                                className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
+                                                                title="Find images"
+                                                            >
+                                                                🖼️
+                                                            </button>
+                                                            <button
+                                                                onClick={() => checkPrice(card)}
+                                                                className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded transition-colors"
+                                                                title="Check price"
+                                                            >
+                                                                💰
+                                                            </button>
+                                                            <button
+                                                                onClick={() => deleteCard(card.id)}
+                                                                className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors"
+                                                                title="Delete"
+                                                            >
+                                                                🗑️
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Export/Import */}
+                        <div className="mt-6 bg-gray-800 rounded-lg shadow-xl p-6">
+                            <h3 className="text-xl font-bold text-white mb-4">📊 Collection Management</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <button
+                                    onClick={() => {
+                                        const data = JSON.stringify(myCollection, null, 2);
+                                        const blob = new Blob([data], { type: 'application/json' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `mj-collection-${new Date().toISOString().split('T')[0]}.json`;
+                                        a.click();
+                                    }}
+                                    className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium"
+                                >
+                                    📥 Export Collection
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const input = document.createElement('input');
+                                        input.type = 'file';
+                                        input.accept = 'application/json';
+                                        input.onchange = (e) => {
+                                            const file = e.target.files[0];
+                                            const reader = new FileReader();
+                                            reader.onload = (event) => {
+                                                try {
+                                                    const imported = JSON.parse(event.target.result);
+                                                    saveMyCollection(imported);
+                                                    alert('Collection imported successfully!');
+                                                } catch (error) {
+                                                    alert('Error importing collection.');
+                                                }
+                                            };
+                                            reader.readAsText(file);
+                                        };
+                                        input.click();
+                                    }}
+                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+                                >
+                                    📤 Import Collection
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        if (confirm('Reset your entire collection? This cannot be undone!')) {
+                                            saveMyCollection([]);
+                                        }
+                                    }}
+                                    className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors font-medium"
+                                >
+                                    🔄 Reset Collection
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Add Card Modal */}
+                    {showAddModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+                            <div className="bg-gray-800 rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                                <div className="sticky top-0 bg-gray-800 border-b border-gray-700 p-6 flex justify-between items-center">
+                                    <h2 className="text-2xl font-bold text-white">Add Card to Collection</h2>
+                                    <button
+                                        onClick={() => { setShowAddModal(false); resetForm(); }}
+                                        className="text-gray-400 hover:text-white text-2xl"
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                
+                                <div className="p-6 space-y-4">
+                                    {/* Database Info Banner */}
+                                    {referenceDB && (
+                                        <div className="bg-blue-900 bg-opacity-30 border border-blue-600 rounded-lg p-4">
+                                            <div className="flex items-start gap-3">
+                                                <div className="text-2xl">💡</div>
+                                                <div className="flex-1 text-sm">
+                                                    <div className="font-semibold text-blue-300 mb-1">Search Tips:</div>
+                                                    <ul className="text-blue-200 space-y-1">
+                                                        <li>• Search works on all {referenceDB.length.toLocaleString()} cards in the database</li>
+                                                        <li>• Try: "1989 Hoops", "Fleer 57", "Metal Universe", "Exquisite"</li>
+                                                        <li>• Use multiple words to narrow results</li>
+                                                        <li>• Showing top 20 matches - type more to refine</li>
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {!referenceDB && (
+                                        <div className="bg-yellow-900 bg-opacity-30 border border-yellow-600 rounded-lg p-4">
+                                            <div className="flex items-start gap-3">
+                                                <div className="text-2xl">⚠️</div>
+                                                <div className="flex-1 text-sm">
+                                                    <div className="font-semibold text-yellow-300 mb-1">Database Not Loaded</div>
+                                                    <p className="text-yellow-200 mb-2">
+                                                        You can still add cards manually, or click "Load Reference Database" for autocomplete suggestions.
+                                                    </p>
+                                                    <button
+                                                        onClick={loadReferenceDB}
+                                                        disabled={dbLoading}
+                                                        className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50"
+                                                    >
+                                                        {dbLoading ? 'Loading 16,232 cards...' : 'Load Database Now'}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Search with Autocomplete */}
+                                    <div className="relative">
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                                            Card Search {!referenceDB && <span className="text-xs text-yellow-400">(Load database for suggestions)</span>}
+                                            {referenceDB && <span className="text-xs text-green-400 ml-2">✓ {referenceDB.length.toLocaleString()} cards searchable</span>}
+                                        </label>
+                                        <input
+                                            ref={searchInputRef}
+                                            type="text"
+                                            value={searchInput}
+                                            onChange={(e) => handleSearchInput(e.target.value)}
+                                            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                                            placeholder="Type year, brand, card number, or keywords... (e.g., '1989 Hoops' or 'Metal Universe PMG')"
+                                            className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600"
+                                        />
+                                        {searchInput.length >= 2 && referenceDB && (
+                                            <div className="mt-1 text-xs text-gray-400">
+                                                {dbLoading ? 'Searching...' : `${suggestions.length} matches found`}
+                                            </div>
+                                        )}
+                                        {showSuggestions && suggestions.length > 0 && (
+                                            <div className="autocomplete-dropdown w-full mt-1">
+                                                {suggestions.map((suggestion, idx) => (
+                                                    <div
+                                                        key={idx}
+                                                        onClick={() => selectSuggestion(suggestion)}
+                                                        className="autocomplete-item"
+                                                    >
+                                                        <div className="font-medium text-white">{suggestion.description}</div>
+                                                        <div className="text-xs text-gray-400 mt-1">
+                                                            {suggestion.year} • {suggestion.brand} 
+                                                            {suggestion.cardNumber && ` • #${suggestion.cardNumber}`}
+                                                            {suggestion.serialNumber && ` • ${suggestion.serialNumber}`}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {suggestions.length === 20 && (
+                                                    <div className="px-4 py-2 text-xs text-yellow-400 bg-gray-700 border-t border-gray-600">
+                                                        Showing first 20 results. Type more to narrow search.
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                        {selectedCard && (
+                                            <div className="mt-2 p-3 bg-green-900 bg-opacity-30 border border-green-600 rounded-lg">
+                                                <div className="text-sm text-green-400">✓ Card validated from database</div>
+                                                <div className="text-xs text-gray-300 mt-1">
+                                                    {selectedCard.year} • {selectedCard.brand} • #{selectedCard.cardNumber}
+                                                    {selectedCard.serialNumber && ` • ${selectedCard.serialNumber}`}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-300 mb-2">Quantity</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={quantity}
+                                                onChange={(e) => setQuantity(e.target.value)}
+                                                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-red-600"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="block text-sm font-medium text-gray-300 mb-2">Purchase Price</label>
+                                            <input
+                                                type="text"
+                                                value={purchasePrice}
+                                                onChange={(e) => setPurchasePrice(e.target.value)}
+                                                placeholder="$0.00"
+                                                className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Grade (Optional)</label>
+                                        <input
+                                            type="text"
+                                            value={grade}
+                                            onChange={(e) => setGrade(e.target.value)}
+                                            placeholder="PSA 10, BGS 9.5, Raw, etc."
+                                            className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600"
+                                        />
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Notes (Optional)</label>
+                                        <textarea
+                                            value={notes}
+                                            onChange={(e) => setNotes(e.target.value)}
+                                            placeholder="Purchase location, condition notes, etc."
+                                            rows="3"
+                                            className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600"
+                                        />
+                                    </div>
+
+                                    <div className="flex gap-4 pt-4">
+                                        <button
+                                            onClick={addCardToCollection}
+                                            className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium"
+                                        >
+                                            Add to Collection
+                                        </button>
+                                        <button
+                                            onClick={() => { setShowAddModal(false); resetForm(); }}
+                                            className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors font-medium"
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Footer */}
+                    <div className="max-w-7xl mx-auto px-4 py-6 mt-6 border-t border-gray-700">
+                        <p className="text-center text-gray-400 text-sm">
+                            My MJ Collection Tracker • {stats.uniqueCards} unique cards • {stats.totalCards} total • ${stats.totalValue} invested
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
