@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Michael Jordan Card Tracker - Full Database</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        }
+        .scrollable-table {
+            max-height: calc(100vh - 350px);
+            overflow-y: auto;
+        }
+        .sticky-header th {
+            position: sticky;
+            top: 0;
+            background: #1f2937;
+            z-index: 10;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100">
+    <div id="root"></div>
+    
+    <!-- This will be replaced with actual card data -->
+    <script id="card-database" type="application/json">
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        function App() {
+            const [cards, setCards] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [yearFilter, setYearFilter] = useState('');
+            const [brandFilter, setBrandFilter] = useState('');
+            const [cardNumberFilter, setCardNumberFilter] = useState('');
+            const [showOwnedOnly, setShowOwnedOnly] = useState(false);
+            const [collection, setCollection] = useState({});
+            const [sortField, setSortField] = useState('description');
+            const [sortDirection, setSortDirection] = useState('asc');
+
+            useEffect(() => {
+                loadCollection();
+                loadCardsDatabase();
+            }, []);
+
+            const loadCollection = async () => {
+                try {
+                    const result = await window.storage.get('jordan-collection');
+                    if (result && result.value) {
+                        setCollection(JSON.parse(result.value));
+                    }
+                } catch (error) {
+                    console.log('No existing collection found, starting fresh');
+                    setCollection({});
+                }
+            };
+
+            const saveCollection = async (newCollection) => {
+                try {
+                    await window.storage.set('jordan-collection', JSON.stringify(newCollection));
+                    setCollection(newCollection);
+                } catch (error) {
+                    console.error('Failed to save collection:', error);
+                    alert('Failed to save collection. Please try again.');
+                }
+            };
+
+            const loadCardsDatabase = async () => {
+                try {
+                    // Try to load from external JSON file
+                    const response = await fetch('./jordan_cards_database.json');
+                    if (response.ok) {
+                        const data = await response.json();
+                        setCards(data);
+                        setLoading(false);
+                        return;
+                    }
+                } catch (error) {
+                    console.log('External database not found, checking inline...');
+                }
+
+                // Fallback to inline data
+                try {
+                    const inlineData = document.getElementById('card-database');
+                    if (inlineData && inlineData.textContent.trim()) {
+                        const data = JSON.parse(inlineData.textContent);
+                        setCards(data);
+                        setLoading(false);
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Failed to load inline database:', error);
+                }
+
+                // Last resort: load sample data
+                setCards(generateSampleCards());
+                setLoading(false);
+            };
+
+            const generateSampleCards = () => {
+                return [
+                    { description: '1986-87 Fleer 57 Michael Jordan RC', year: '1986', brand: 'Fleer', cardNumber: '57', serialNumber: '', qtyOwned: 0, marketPrice: '' },
+                    { description: '1986-87 Fleer Sticker 8 Michael Jordan', year: '1986', brand: 'Fleer', cardNumber: '8', serialNumber: '', qtyOwned: 0, marketPrice: '' },
+                    { description: '1997-98 Metal Universe Precious Metal Gems 23 Michael Jordan', year: '1997', brand: 'Metal Universe', cardNumber: '23', serialNumber: '/10', qtyOwned: 0, marketPrice: '' },
+                    { description: '1984-85 Star 101 Michael Jordan RC', year: '1984', brand: 'Star', cardNumber: '101', serialNumber: '', qtyOwned: 0, marketPrice: '' },
+                ];
+            };
+
+            const updateQuantity = (cardDescription, newQty) => {
+                const updatedCollection = { ...collection, [cardDescription]: parseInt(newQty) || 0 };
+                saveCollection(updatedCollection);
+            };
+
+            const filteredCards = useMemo(() => {
+                let filtered = cards.filter(card => {
+                    const matchesSearch = !searchTerm || 
+                        card.description.toLowerCase().includes(searchTerm.toLowerCase());
+                    const matchesYear = !yearFilter || 
+                        String(card.year).includes(yearFilter);
+                    const matchesBrand = !brandFilter || 
+                        String(card.brand).toLowerCase().includes(brandFilter.toLowerCase());
+                    const matchesCardNumber = !cardNumberFilter || 
+                        String(card.cardNumber).includes(cardNumberFilter);
+                    const matchesOwned = !showOwnedOnly || 
+                        (collection[card.description] && collection[card.description] > 0);
+
+                    return matchesSearch && matchesYear && matchesBrand && matchesCardNumber && matchesOwned;
+                });
+
+                // Sort
+                filtered.sort((a, b) => {
+                    let aVal = a[sortField] || '';
+                    let bVal = b[sortField] || '';
+                    
+                    if (sortField === 'year' || sortField === 'cardNumber') {
+                        aVal = String(aVal);
+                        bVal = String(bVal);
+                    }
+                    
+                    if (sortDirection === 'asc') {
+                        return aVal > bVal ? 1 : -1;
+                    } else {
+                        return aVal < bVal ? 1 : -1;
+                    }
+                });
+
+                return filtered;
+            }, [cards, searchTerm, yearFilter, brandFilter, cardNumberFilter, showOwnedOnly, collection, sortField, sortDirection]);
+
+            const uniqueYears = useMemo(() => {
+                const years = [...new Set(cards.map(c => c.year).filter(y => y && y !== 'nan'))].sort();
+                return years;
+            }, [cards]);
+
+            const uniqueBrands = useMemo(() => {
+                const brands = [...new Set(cards.map(c => c.brand).filter(b => b && b !== 'nan'))].sort();
+                return brands;
+            }, [cards]);
+
+            const totalCards = cards.length;
+            const totalOwned = Object.values(collection).reduce((sum, qty) => sum + qty, 0);
+            const uniqueOwned = Object.keys(collection).filter(k => collection[k] > 0).length;
+
+            const searchCardImage = (card) => {
+                const query = `${card.year} ${card.brand} ${card.cardNumber} Michael Jordan card`.trim();
+                const searchUrl = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(query)}`;
+                window.open(searchUrl, '_blank');
+            };
+
+            const checkPrice = (card) => {
+                const query = `${card.year} ${card.brand} ${card.cardNumber} Michael Jordan`.trim();
+                const searchUrl = `https://130point.com/sales/?s=${encodeURIComponent(query)}`;
+                window.open(searchUrl, '_blank');
+            };
+
+            const handleSort = (field) => {
+                if (sortField === field) {
+                    setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                } else {
+                    setSortField(field);
+                    setSortDirection('asc');
+                }
+            };
+
+            const clearFilters = () => {
+                setSearchTerm('');
+                setYearFilter('');
+                setBrandFilter('');
+                setCardNumberFilter('');
+                setShowOwnedOnly(false);
+            };
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-red-600 mx-auto mb-4"></div>
+                            <p className="text-xl">Loading card database...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+                    {/* Header */}
+                    <div className="bg-gradient-to-r from-red-600 to-red-800 shadow-lg sticky top-0 z-20">
+                        <div className="max-w-7xl mx-auto px-4 py-6">
+                            <div className="flex items-center justify-between flex-wrap gap-4">
+                                <div>
+                                    <h1 className="text-3xl md:text-4xl font-bold text-white flex items-center">
+                                        <span className="mr-3">🏀</span>
+                                        MJ Card Tracker
+                                    </h1>
+                                    <p className="text-red-100 mt-1 text-sm">Complete Collection Database</p>
+                                </div>
+                                <div className="grid grid-cols-3 gap-3 text-center">
+                                    <div className="bg-white bg-opacity-20 rounded-lg p-3 backdrop-blur">
+                                        <div className="text-2xl font-bold text-white">{totalCards.toLocaleString()}</div>
+                                        <div className="text-red-100 text-xs">Total Cards</div>
+                                    </div>
+                                    <div className="bg-white bg-opacity-20 rounded-lg p-3 backdrop-blur">
+                                        <div className="text-2xl font-bold text-white">{uniqueOwned}</div>
+                                        <div className="text-red-100 text-xs">Unique Owned</div>
+                                    </div>
+                                    <div className="bg-white bg-opacity-20 rounded-lg p-3 backdrop-blur">
+                                        <div className="text-2xl font-bold text-white">{totalOwned}</div>
+                                        <div className="text-red-100 text-xs">Total Owned</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Filters */}
+                    <div className="max-w-7xl mx-auto px-4 py-6">
+                        <div className="bg-gray-800 rounded-lg shadow-xl p-6 mb-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">🔍 Search</label>
+                                    <input
+                                        type="text"
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        placeholder="Search cards..."
+                                        className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">📅 Year</label>
+                                    <select
+                                        value={yearFilter}
+                                        onChange={(e) => setYearFilter(e.target.value)}
+                                        className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-red-600"
+                                    >
+                                        <option value="">All Years</option>
+                                        {uniqueYears.map(year => (
+                                            <option key={year} value={year}>{year}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">🏷️ Brand</label>
+                                    <select
+                                        value={brandFilter}
+                                        onChange={(e) => setBrandFilter(e.target.value)}
+                                        className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-red-600"
+                                    >
+                                        <option value="">All Brands</option>
+                                        {uniqueBrands.map(brand => (
+                                            <option key={brand} value={brand}>{brand}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-300 mb-2">#️⃣ Card Number</label>
+                                    <input
+                                        type="text"
+                                        value={cardNumberFilter}
+                                        onChange={(e) => setCardNumberFilter(e.target.value)}
+                                        placeholder="Card number..."
+                                        className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600"
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between flex-wrap gap-3">
+                                <label className="flex items-center cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={showOwnedOnly}
+                                        onChange={(e) => setShowOwnedOnly(e.target.checked)}
+                                        className="w-5 h-5 text-red-600 bg-gray-700 border-gray-600 rounded focus:ring-red-600"
+                                    />
+                                    <span className="ml-2 text-sm font-medium text-gray-300">✅ Show Owned Only</span>
+                                </label>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={clearFilters}
+                                        className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm rounded-lg transition-colors"
+                                    >
+                                        Clear Filters
+                                    </button>
+                                    <span className="px-4 py-2 bg-gray-700 text-gray-300 text-sm rounded-lg">
+                                        {filteredCards.length.toLocaleString()} results
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Cards Table */}
+                        <div className="bg-gray-800 rounded-lg shadow-xl overflow-hidden">
+                            <div className="scrollable-table">
+                                <table className="w-full">
+                                    <thead className="sticky-header">
+                                        <tr className="text-left text-sm font-semibold text-gray-300 border-b border-gray-700">
+                                            <th 
+                                                className="px-4 py-3 cursor-pointer hover:bg-gray-700"
+                                                onClick={() => handleSort('description')}
+                                            >
+                                                Card Description {sortField === 'description' && (sortDirection === 'asc' ? '▲' : '▼')}
+                                            </th>
+                                            <th 
+                                                className="px-4 py-3 cursor-pointer hover:bg-gray-700"
+                                                onClick={() => handleSort('year')}
+                                            >
+                                                Year {sortField === 'year' && (sortDirection === 'asc' ? '▲' : '▼')}
+                                            </th>
+                                            <th 
+                                                className="px-4 py-3 cursor-pointer hover:bg-gray-700"
+                                                onClick={() => handleSort('brand')}
+                                            >
+                                                Brand {sortField === 'brand' && (sortDirection === 'asc' ? '▲' : '▼')}
+                                            </th>
+                                            <th className="px-4 py-3">Card #</th>
+                                            <th className="px-4 py-3">Serial #</th>
+                                            <th className="px-4 py-3 text-center">Qty</th>
+                                            <th className="px-4 py-3">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-700">
+                                        {filteredCards.map((card, index) => (
+                                            <tr key={index} className={`hover:bg-gray-700 transition-colors ${collection[card.description] > 0 ? 'bg-green-900 bg-opacity-20' : ''}`}>
+                                                <td className="px-4 py-3 text-sm">{card.description}</td>
+                                                <td className="px-4 py-3 text-sm text-gray-400">{card.year}</td>
+                                                <td className="px-4 py-3 text-sm text-gray-400">{card.brand}</td>
+                                                <td className="px-4 py-3 text-sm text-gray-400">{card.cardNumber}</td>
+                                                <td className="px-4 py-3 text-sm text-gray-400">{card.serialNumber}</td>
+                                                <td className="px-4 py-3 text-center">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={collection[card.description] || 0}
+                                                        onChange={(e) => updateQuantity(card.description, e.target.value)}
+                                                        className="w-20 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-center focus:outline-none focus:ring-2 focus:ring-red-600"
+                                                    />
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex space-x-2">
+                                                        <button
+                                                            onClick={() => searchCardImage(card)}
+                                                            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg transition-colors"
+                                                            title="Find card images on Google"
+                                                        >
+                                                            🖼️
+                                                        </button>
+                                                        <button
+                                                            onClick={() => checkPrice(card)}
+                                                            className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded-lg transition-colors"
+                                                            title="Check 130point.com for recent sales"
+                                                        >
+                                                            💰
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Collection Management */}
+                        <div className="mt-6 bg-gray-800 rounded-lg shadow-xl p-6">
+                            <h3 className="text-xl font-bold text-white mb-4">📊 Collection Management</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <button
+                                    onClick={() => {
+                                        const data = JSON.stringify(collection, null, 2);
+                                        const blob = new Blob([data], { type: 'application/json' });
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement('a');
+                                        a.href = url;
+                                        a.download = `jordan-collection-${new Date().toISOString().split('T')[0]}.json`;
+                                        a.click();
+                                    }}
+                                    className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium"
+                                >
+                                    📥 Export Collection
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const input = document.createElement('input');
+                                        input.type = 'file';
+                                        input.accept = 'application/json';
+                                        input.onchange = (e) => {
+                                            const file = e.target.files[0];
+                                            const reader = new FileReader();
+                                            reader.onload = (event) => {
+                                                try {
+                                                    const imported = JSON.parse(event.target.result);
+                                                    saveCollection(imported);
+                                                    alert('Collection imported successfully!');
+                                                } catch (error) {
+                                                    alert('Error importing collection. Please check the file format.');
+                                                }
+                                            };
+                                            reader.readAsText(file);
+                                        };
+                                        input.click();
+                                    }}
+                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+                                >
+                                    📤 Import Collection
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        if (confirm('Are you sure you want to reset your collection? This cannot be undone.')) {
+                                            saveCollection({});
+                                            alert('Collection reset successfully!');
+                                        }
+                                    }}
+                                    className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors font-medium"
+                                >
+                                    🔄 Reset Collection
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Footer */}
+                    <div className="max-w-7xl mx-auto px-4 py-6 mt-6 border-t border-gray-700">
+                        <p className="text-center text-gray-400 text-sm">
+                            Michael Jordan Card Tracker | Database: {totalCards.toLocaleString()} cards | 
+                            Collection: {uniqueOwned} unique ({totalOwned} total)
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
