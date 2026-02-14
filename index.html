@@ -120,6 +120,14 @@
             const [selectedImageUrl, setSelectedImageUrl] = useState('');
             const [currentImageCard, setCurrentImageCard] = useState(null);
             const [theme, setTheme] = useState('clean'); // 'clean', 'liquid', 'titanium'
+            const [showCardDetailModal, setShowCardDetailModal] = useState(false);
+            const [detailCard, setDetailCard] = useState(null);
+            const [showAddPriceModal, setShowAddPriceModal] = useState(false);
+            const [priceCard, setPriceCard] = useState(null);
+            const [newPrice, setNewPrice] = useState('');
+            const [priceGradeCompany, setPriceGradeCompany] = useState('');
+            const [priceGradeValue, setPriceGradeValue] = useState('');
+            const [priceNotes, setPriceNotes] = useState('');
             
             const searchInputRef = useRef(null);
 
@@ -352,13 +360,21 @@
                     brand: selectedCard?.brand || '',
                     cardNumber: selectedCard?.cardNumber || '',
                     serialNumber: selectedCard?.serialNumber || '',
-                    quantity: parseInt(quantity) || 1,
-                    purchasePrice: purchasePrice || '',
-                    grade: grade || '',
-                    notes: notes || '',
                     imageUrl: selectedImageUrl || '',
                     dateAdded: new Date().toISOString(),
-                    validated: !!selectedCard
+                    validated: !!selectedCard,
+                    // Card variants - different grades/conditions of same card
+                    variants: [{
+                        id: `${Date.now()}-1`,
+                        gradeCompany: grade ? (grade.includes('PSA') || grade.includes('BGS') ? grade.split(' ')[0] : '') : '',
+                        gradeValue: grade || 'Raw',
+                        quantity: parseInt(quantity) || 1,
+                        purchasePrice: purchasePrice || '',
+                        purchaseDate: new Date().toISOString(),
+                        notes: notes || '',
+                        isRaw: !grade || grade.toLowerCase().includes('raw')
+                    }],
+                    priceHistory: [] // Market price tracking
                 };
 
                 const updated = [...myCollection, newCard];
@@ -423,11 +439,19 @@
             }, [myCollection, filterText, sortField, sortDirection]);
 
             const stats = useMemo(() => {
-                const totalCards = myCollection.reduce((sum, card) => sum + card.quantity, 0);
-                const totalValue = myCollection.reduce((sum, card) => {
-                    const price = parseFloat(card.purchasePrice) || 0;
-                    return sum + (price * card.quantity);
+                const totalCards = myCollection.reduce((sum, card) => {
+                    const variantTotal = (card.variants || []).reduce((vSum, v) => vSum + (v.quantity || 0), 0);
+                    return sum + variantTotal;
                 }, 0);
+                
+                const totalValue = myCollection.reduce((sum, card) => {
+                    const variantValue = (card.variants || []).reduce((vSum, v) => {
+                        const price = parseFloat(v.purchasePrice) || 0;
+                        return vSum + (price * (v.quantity || 0));
+                    }, 0);
+                    return sum + variantValue;
+                }, 0);
+                
                 const validatedCards = myCollection.filter(card => card.validated).length;
                 
                 return {
@@ -470,6 +494,124 @@
                     setCurrentImageCard(null);
                     setSelectedImageUrl('');
                 }
+            };
+
+            const openCardDetail = (card) => {
+                setDetailCard(card);
+                setShowCardDetailModal(true);
+            };
+
+            const openAddPrice = (card) => {
+                setPriceCard(card);
+                setNewPrice('');
+                setPriceGradeCompany('');
+                setPriceGradeValue('');
+                setPriceNotes('');
+                setShowAddPriceModal(true);
+            };
+
+            const addPriceRecord = () => {
+                if (!newPrice || !newPrice.trim()) {
+                    alert('Please enter a price');
+                    return;
+                }
+
+                const priceEntry = {
+                    id: Date.now().toString(),
+                    price: parseFloat(newPrice.replace(/[^0-9.]/g, '')) || 0,
+                    gradeCompany: priceGradeCompany || 'Raw',
+                    gradeValue: priceGradeValue || '',
+                    notes: priceNotes || '',
+                    date: new Date().toISOString(),
+                    dateFormatted: new Date().toLocaleDateString()
+                };
+
+                const updatedCard = {
+                    ...priceCard,
+                    priceHistory: [...(priceCard.priceHistory || []), priceEntry],
+                    lastPriceCheck: new Date().toISOString()
+                };
+
+                updateCard(priceCard.id, {
+                    priceHistory: updatedCard.priceHistory,
+                    lastPriceCheck: updatedCard.lastPriceCheck
+                });
+
+                setShowAddPriceModal(false);
+                setPriceCard(null);
+            };
+
+            const deletePriceRecord = (cardId, priceId) => {
+                const card = myCollection.find(c => c.id === cardId);
+                if (!card) return;
+
+                const updatedHistory = (card.priceHistory || []).filter(p => p.id !== priceId);
+                updateCard(cardId, { priceHistory: updatedHistory });
+            };
+
+            // Variant management (different grades/conditions of same card)
+            const [showAddVariantModal, setShowAddVariantModal] = useState(false);
+            const [variantCard, setVariantCard] = useState(null);
+            const [variantGradeCompany, setVariantGradeCompany] = useState('');
+            const [variantGradeValue, setVariantGradeValue] = useState('');
+            const [variantQuantity, setVariantQuantity] = useState(1);
+            const [variantPurchasePrice, setVariantPurchasePrice] = useState('');
+            const [variantNotes, setVariantNotes] = useState('');
+
+            const openAddVariant = (card) => {
+                setVariantCard(card);
+                setVariantGradeCompany('');
+                setVariantGradeValue('');
+                setVariantQuantity(1);
+                setVariantPurchasePrice('');
+                setVariantNotes('');
+                setShowAddVariantModal(true);
+            };
+
+            const addVariant = () => {
+                if (!variantCard) return;
+
+                const newVariant = {
+                    id: Date.now().toString(),
+                    gradeCompany: variantGradeCompany || '',
+                    gradeValue: variantGradeValue || 'Raw',
+                    quantity: parseInt(variantQuantity) || 1,
+                    purchasePrice: variantPurchasePrice || '',
+                    purchaseDate: new Date().toISOString(),
+                    notes: variantNotes || '',
+                    isRaw: !variantGradeCompany || variantGradeCompany === 'Raw'
+                };
+
+                const updatedVariants = [...(variantCard.variants || []), newVariant];
+                updateCard(variantCard.id, { variants: updatedVariants });
+                
+                setShowAddVariantModal(false);
+                setVariantCard(null);
+            };
+
+            const deleteVariant = (cardId, variantId) => {
+                const card = myCollection.find(c => c.id === cardId);
+                if (!card || !card.variants) return;
+
+                if (card.variants.length <= 1) {
+                    alert('Cannot delete the last variant. Delete the entire card instead.');
+                    return;
+                }
+
+                if (!confirm('Delete this card variant?')) return;
+
+                const updatedVariants = card.variants.filter(v => v.id !== variantId);
+                updateCard(cardId, { variants: updatedVariants });
+            };
+
+            const updateVariant = (cardId, variantId, updates) => {
+                const card = myCollection.find(c => c.id === cardId);
+                if (!card || !card.variants) return;
+
+                const updatedVariants = card.variants.map(v => 
+                    v.id === variantId ? { ...v, ...updates } : v
+                );
+                updateCard(cardId, { variants: updatedVariants });
             };
 
             const checkPrice = (card) => {
@@ -658,33 +800,37 @@
                             /* Mobile Card View */
                             <div className="space-y-4">
                                 {filteredCollection.map((card) => (
-                                    <div key={card.id} className="bg-gray-800 rounded-lg shadow-xl p-4 border-l-4 border-red-600">
+                                    <div key={card.id} className={`${t.card} rounded-lg shadow-xl p-4 border-l-4 border-blue-600 cursor-pointer`} onClick={() => openCardDetail(card)}>
                                         {/* Card Image Thumbnail */}
                                         {card.imageUrl && (
                                             <div className="mb-3">
                                                 <img 
                                                     src={card.imageUrl} 
                                                     alt={card.description}
-                                                    className="w-full h-48 object-contain rounded bg-gray-900 cursor-pointer"
-                                                    onClick={() => findAndSaveImage(card)}
+                                                    className="w-full h-48 object-contain rounded bg-gray-900"
                                                     onError={(e) => e.target.style.display = 'none'}
                                                 />
                                             </div>
                                         )}
                                         
-                                        <div className="flex justify-between items-start mb-3">
+                                        <div className="flex justify-between items-start mb-3" onClick={(e) => e.stopPropagation()}>
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-1">
                                                     {card.validated && <span className="text-green-400 text-sm">✓</span>}
-                                                    <h3 className="font-semibold text-white">{card.description}</h3>
+                                                    <h3 className={`font-semibold ${t.text}`}>{card.description}</h3>
                                                 </div>
-                                                <div className="text-sm text-gray-400">
+                                                <div className={`text-sm ${t.textMuted}`}>
                                                     {card.year} • {card.brand} {card.cardNumber && `• #${card.cardNumber}`}
                                                 </div>
+                                                {card.priceHistory && card.priceHistory.length > 0 && (
+                                                    <div className="text-xs bg-green-600 text-white px-2 py-0.5 rounded-full inline-block mt-1">
+                                                        {card.priceHistory.length} price record{card.priceHistory.length > 1 ? 's' : ''}
+                                                    </div>
+                                                )}
                                             </div>
                                             <button
-                                                onClick={() => deleteCard(card.id)}
-                                                className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-sm rounded transition-colors ml-2"
+                                                onClick={(e) => { e.stopPropagation(); deleteCard(card.id); }}
+                                                className={`${t.buttonDanger} text-white px-3 py-1 text-sm rounded transition-colors ml-2`}
                                             >
                                                 🗑️
                                             </button>
@@ -733,24 +879,30 @@
                                             </div>
                                         </div>
                                         
-                                        <div className="grid grid-cols-3 gap-2">
+                                        <div className="grid grid-cols-2 gap-2" onClick={(e) => e.stopPropagation()}>
                                             <button
-                                                onClick={() => findAndSaveImage(card)}
-                                                className="px-3 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded transition-colors"
+                                                onClick={(e) => { e.stopPropagation(); openAddPrice(card); }}
+                                                className={`${t.buttonPrimary} text-white px-3 py-2 text-sm rounded transition-colors`}
+                                            >
+                                                📝 Price
+                                            </button>
+                                            <button
+                                                onClick={(e) => { e.stopPropagation(); findAndSaveImage(card); }}
+                                                className={`${t.buttonPurple} text-white px-3 py-2 text-sm rounded transition-colors`}
                                             >
                                                 {card.imageUrl ? '🖼️ View' : '➕ Image'}
                                             </button>
                                             <button
-                                                onClick={() => searchCardImage(card)}
-                                                className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded transition-colors"
+                                                onClick={(e) => { e.stopPropagation(); searchCardImage(card); }}
+                                                className={`${t.buttonPrimary} text-white px-3 py-2 text-sm rounded transition-colors`}
                                             >
                                                 🔍 Search
                                             </button>
                                             <button
-                                                onClick={() => checkPrice(card)}
-                                                className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded transition-colors"
+                                                onClick={(e) => { e.stopPropagation(); checkPrice(card); }}
+                                                className={`${t.buttonSuccess} text-white px-3 py-2 text-sm rounded transition-colors`}
                                             >
-                                                💰 Price
+                                                💰 130point
                                             </button>
                                         </div>
                                     </div>
@@ -788,11 +940,16 @@
                                         </thead>
                                         <tbody className="divide-y divide-gray-700">
                                             {filteredCollection.map((card) => (
-                                                <tr key={card.id} className="hover:bg-gray-700 transition-colors">
+                                                <tr key={card.id} className="hover:bg-gray-700 transition-colors cursor-pointer" onClick={() => openCardDetail(card)}>
                                                     <td className="px-4 py-3">
                                                         <div className="flex items-center gap-2">
                                                             {card.validated && <span className="text-green-400" title="Validated from database">✓</span>}
-                                                            <span className="text-sm">{card.description}</span>
+                                                            <span className="text-sm font-medium text-blue-400 hover:text-blue-300">{card.description}</span>
+                                                            {card.priceHistory && card.priceHistory.length > 0 && (
+                                                                <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded-full">
+                                                                    {card.priceHistory.length} price{card.priceHistory.length > 1 ? 's' : ''}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     </td>
                                                     <td className="px-4 py-3 text-sm text-gray-400">{card.year}</td>
@@ -834,31 +991,38 @@
                                                             className="w-32 px-2 py-1 bg-gray-700 border border-gray-600 rounded text-white text-sm focus:outline-none focus:ring-1 focus:ring-red-600"
                                                         />
                                                     </td>
-                                                    <td className="px-4 py-3">
+                                                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                                                         <div className="flex gap-2">
                                                             <button
-                                                                onClick={() => findAndSaveImage(card)}
+                                                                onClick={(e) => { e.stopPropagation(); openAddPrice(card); }}
+                                                                className="px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-white text-xs rounded transition-colors"
+                                                                title="Record price"
+                                                            >
+                                                                📝
+                                                            </button>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); findAndSaveImage(card); }}
                                                                 className="px-2 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded transition-colors"
                                                                 title="Add/view card image"
                                                             >
                                                                 {card.imageUrl ? '🖼️' : '➕🖼️'}
                                                             </button>
                                                             <button
-                                                                onClick={() => searchCardImage(card)}
+                                                                onClick={(e) => { e.stopPropagation(); searchCardImage(card); }}
                                                                 className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded transition-colors"
                                                                 title="Search images online"
                                                             >
                                                                 🔍
                                                             </button>
                                                             <button
-                                                                onClick={() => checkPrice(card)}
+                                                                onClick={(e) => { e.stopPropagation(); checkPrice(card); }}
                                                                 className="px-2 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded transition-colors"
                                                                 title="Check price"
                                                             >
                                                                 💰
                                                             </button>
                                                             <button
-                                                                onClick={() => deleteCard(card.id)}
+                                                                onClick={(e) => { e.stopPropagation(); deleteCard(card.id); }}
                                                                 className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors"
                                                                 title="Delete"
                                                             >
@@ -1229,6 +1393,510 @@
                                     >
                                         Cancel
                                     </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Card Detail Modal */}
+                    {showCardDetailModal && detailCard && (
+                        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 overflow-y-auto">
+                            <div className={`${t.card} rounded-lg shadow-2xl max-w-4xl w-full my-8`}>
+                                <div className={`sticky top-0 ${t.card} border-b ${t.cardBorder} p-4 md:p-6 flex justify-between items-center rounded-t-lg`}>
+                                    <h2 className={`text-xl md:text-2xl font-bold ${t.text}`}>Card Details</h2>
+                                    <button
+                                        onClick={() => setShowCardDetailModal(false)}
+                                        className={`${t.textMuted} hover:${t.text} text-3xl leading-none min-h-[44px] min-w-[44px] flex items-center justify-center`}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                
+                                <div className="p-4 md:p-6 space-y-6">
+                                    {/* Card Image */}
+                                    {detailCard.imageUrl && (
+                                        <div className={`${t.card} rounded-lg p-4 text-center`}>
+                                            <img 
+                                                src={detailCard.imageUrl} 
+                                                alt={detailCard.description}
+                                                className="max-w-full h-auto max-h-96 mx-auto rounded"
+                                                onError={(e) => e.target.style.display = 'none'}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {/* Card Information */}
+                                    <div className={`${t.card} rounded-lg p-4`}>
+                                        <h3 className={`text-lg font-bold ${t.text} mb-4 flex items-center gap-2`}>
+                                            📇 Card Information
+                                            {detailCard.validated && <span className="text-green-400 text-sm">✓ Validated</span>}
+                                        </h3>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <div className={`text-xs ${t.textMuted} mb-1`}>Description</div>
+                                                <div className={`${t.text} font-medium`}>{detailCard.description}</div>
+                                            </div>
+                                            <div>
+                                                <div className={`text-xs ${t.textMuted} mb-1`}>Year</div>
+                                                <div className={t.text}>{detailCard.year || 'N/A'}</div>
+                                            </div>
+                                            <div>
+                                                <div className={`text-xs ${t.textMuted} mb-1`}>Brand</div>
+                                                <div className={t.text}>{detailCard.brand || 'N/A'}</div>
+                                            </div>
+                                            <div>
+                                                <div className={`text-xs ${t.textMuted} mb-1`}>Card Number</div>
+                                                <div className={t.text}>{detailCard.cardNumber || 'N/A'}</div>
+                                            </div>
+                                            <div>
+                                                <div className={`text-xs ${t.textMuted} mb-1`}>Serial Number</div>
+                                                <div className={t.text}>{detailCard.serialNumber || 'N/A'}</div>
+                                            </div>
+                                            <div>
+                                                <div className={`text-xs ${t.textMuted} mb-1`}>Date Added</div>
+                                                <div className={t.text}>{new Date(detailCard.dateAdded).toLocaleDateString()}</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Card Variants (Owned Copies) */}
+                                    <div className={`${t.card} rounded-lg p-4`}>
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className={`text-lg font-bold ${t.text} flex items-center gap-2`}>
+                                                🎴 Owned Copies
+                                                <span className="text-sm bg-blue-600 text-white px-2 py-1 rounded-full">
+                                                    {(detailCard.variants || []).length} variant{(detailCard.variants || []).length !== 1 ? 's' : ''}
+                                                </span>
+                                            </h3>
+                                            <button
+                                                onClick={() => { setShowCardDetailModal(false); openAddVariant(detailCard); }}
+                                                className={`${t.buttonPrimary} text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors`}
+                                            >
+                                                ➕ Add Copy
+                                            </button>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            {(detailCard.variants || []).map((variant) => (
+                                                <div key={variant.id} className={`${t.card} border ${t.cardBorder} rounded-lg p-4`}>
+                                                    <div className="flex items-start justify-between gap-4">
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-3 mb-2">
+                                                                {variant.gradeCompany && variant.gradeCompany !== 'Raw' ? (
+                                                                    <div className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm font-bold">
+                                                                        {variant.gradeCompany} {variant.gradeValue}
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="bg-gray-600 text-white px-3 py-1 rounded-full text-sm">
+                                                                        Raw/Ungraded
+                                                                    </div>
+                                                                )}
+                                                                <div className={`font-bold ${t.text}`}>
+                                                                    Qty: {variant.quantity}
+                                                                </div>
+                                                            </div>
+                                                            {variant.purchasePrice && (
+                                                                <div className={`text-sm ${t.text} mb-1`}>
+                                                                    💰 Purchase Price: ${parseFloat(variant.purchasePrice).toLocaleString()}
+                                                                </div>
+                                                            )}
+                                                            {variant.purchaseDate && (
+                                                                <div className={`text-xs ${t.textMuted} mb-1`}>
+                                                                    📅 Acquired: {new Date(variant.purchaseDate).toLocaleDateString()}
+                                                                </div>
+                                                            )}
+                                                            {variant.notes && (
+                                                                <div className={`text-sm ${t.text} italic mt-2`}>
+                                                                    "{variant.notes}"
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <button
+                                                            onClick={() => deleteVariant(detailCard.id, variant.id)}
+                                                            className={`${t.buttonDanger} text-white px-3 py-1 rounded text-xs`}
+                                                            disabled={(detailCard.variants || []).length <= 1}
+                                                        >
+                                                            🗑️
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className={`mt-4 ${t.card} border ${t.cardBorder} rounded-lg p-3`}>
+                                            <div className="grid grid-cols-2 gap-4 text-center">
+                                                <div>
+                                                    <div className={`text-xs ${t.textMuted}`}>Total Cards</div>
+                                                    <div className={`text-2xl font-bold ${t.text}`}>
+                                                        {(detailCard.variants || []).reduce((sum, v) => sum + (v.quantity || 0), 0)}
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <div className={`text-xs ${t.textMuted}`}>Total Investment</div>
+                                                    <div className={`text-2xl font-bold text-green-400`}>
+                                                        ${(detailCard.variants || []).reduce((sum, v) => {
+                                                            const price = parseFloat(v.purchasePrice) || 0;
+                                                            return sum + (price * (v.quantity || 0));
+                                                        }, 0).toLocaleString()}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Price History */}
+                                    <div className={`${t.card} rounded-lg p-4`}>
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className={`text-lg font-bold ${t.text} flex items-center gap-2`}>
+                                                💰 Price History
+                                                {detailCard.priceHistory && detailCard.priceHistory.length > 0 && (
+                                                    <span className="text-sm bg-green-600 text-white px-2 py-1 rounded-full">
+                                                        {detailCard.priceHistory.length} record{detailCard.priceHistory.length > 1 ? 's' : ''}
+                                                    </span>
+                                                )}
+                                            </h3>
+                                            <button
+                                                onClick={() => { setShowCardDetailModal(false); openAddPrice(detailCard); }}
+                                                className={`${t.buttonPrimary} text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors`}
+                                            >
+                                                ➕ Add Price
+                                            </button>
+                                        </div>
+
+                                        {detailCard.priceHistory && detailCard.priceHistory.length > 0 ? (
+                                            <div className="space-y-3">
+                                                {[...detailCard.priceHistory].reverse().map((priceEntry) => (
+                                                    <div key={priceEntry.id} className={`${t.card} border ${t.cardBorder} rounded-lg p-4`}>
+                                                        <div className="flex items-start justify-between gap-4">
+                                                            <div className="flex-1">
+                                                                <div className="flex items-center gap-3 mb-2">
+                                                                    <div className="text-2xl font-bold text-green-400">
+                                                                        ${priceEntry.price.toLocaleString()}
+                                                                    </div>
+                                                                    {priceEntry.gradeCompany && priceEntry.gradeCompany !== 'Raw' && (
+                                                                        <div className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm font-medium">
+                                                                            {priceEntry.gradeCompany} {priceEntry.gradeValue}
+                                                                        </div>
+                                                                    )}
+                                                                    {(!priceEntry.gradeCompany || priceEntry.gradeCompany === 'Raw') && (
+                                                                        <div className="bg-gray-600 text-white px-3 py-1 rounded-full text-sm">
+                                                                            Raw/Ungraded
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                <div className={`text-sm ${t.textMuted} mb-1`}>
+                                                                    📅 {priceEntry.dateFormatted}
+                                                                </div>
+                                                                {priceEntry.notes && (
+                                                                    <div className={`text-sm ${t.text} italic mt-2`}>
+                                                                        {priceEntry.notes}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <button
+                                                                onClick={() => { if(confirm('Delete this price record?')) deletePriceRecord(detailCard.id, priceEntry.id); }}
+                                                                className={`${t.buttonDanger} text-white px-3 py-1 rounded text-xs`}
+                                                            >
+                                                                🗑️
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className={`text-center py-8 ${t.textMuted}`}>
+                                                <div className="text-4xl mb-2">📊</div>
+                                                <div>No price history recorded yet</div>
+                                                <div className="text-sm mt-2">Click "Add Price" to start tracking market values</div>
+                                            </div>
+                                        )}
+
+                                        {detailCard.lastPriceCheck && (
+                                            <div className={`mt-4 text-xs ${t.textMuted} text-center`}>
+                                                Last price check: {new Date(detailCard.lastPriceCheck).toLocaleString()}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Quick Actions */}
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                        <button
+                                            onClick={() => { setShowCardDetailModal(false); openAddVariant(detailCard); }}
+                                            className={`${t.buttonSuccess} text-white px-4 py-3 rounded-lg font-medium transition-colors`}
+                                        >
+                                            ➕ Add Copy
+                                        </button>
+                                        <button
+                                            onClick={() => { setShowCardDetailModal(false); openAddPrice(detailCard); }}
+                                            className={`${t.buttonPrimary} text-white px-4 py-3 rounded-lg font-medium transition-colors`}
+                                        >
+                                            📝 Record Price
+                                        </button>
+                                        <button
+                                            onClick={() => { setShowCardDetailModal(false); findAndSaveImage(detailCard); }}
+                                            className={`${t.buttonPurple} text-white px-4 py-3 rounded-lg font-medium transition-colors`}
+                                        >
+                                            🖼️ {detailCard.imageUrl ? 'Change' : 'Add'} Image
+                                        </button>
+                                        <button
+                                            onClick={() => { setShowCardDetailModal(false); searchCardImage(detailCard); }}
+                                            className={`${t.buttonPrimary} text-white px-4 py-3 rounded-lg font-medium transition-colors`}
+                                        >
+                                            🔍 Search Images
+                                        </button>
+                                        <button
+                                            onClick={() => { setShowCardDetailModal(false); checkPrice(detailCard); }}
+                                            className={`${t.buttonSuccess} text-white px-4 py-3 rounded-lg font-medium transition-colors`}
+                                        >
+                                            💰 Check 130point
+                                        </button>
+                                    </div>
+
+                                    <button
+                                        onClick={() => setShowCardDetailModal(false)}
+                                        className={`w-full ${t.button} text-white px-6 py-3 rounded-lg transition-colors font-medium`}
+                                    >
+                                        Close
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Add Price Modal */}
+                    {showAddPriceModal && priceCard && (
+                        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 overflow-y-auto">
+                            <div className={`${t.card} rounded-lg shadow-2xl max-w-2xl w-full my-8`}>
+                                <div className={`sticky top-0 ${t.card} border-b ${t.cardBorder} p-4 md:p-6 flex justify-between items-center rounded-t-lg`}>
+                                    <h2 className={`text-xl md:text-2xl font-bold ${t.text}`}>Record Market Price</h2>
+                                    <button
+                                        onClick={() => setShowAddPriceModal(false)}
+                                        className={`${t.textMuted} hover:${t.text} text-3xl leading-none min-h-[44px] min-w-[44px] flex items-center justify-center`}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                
+                                <div className="p-4 md:p-6 space-y-4">
+                                    {/* Card Info */}
+                                    <div className={`${t.card} border ${t.cardBorder} rounded-lg p-4`}>
+                                        <div className={`font-semibold ${t.text} mb-1`}>{priceCard.description}</div>
+                                        <div className={`text-sm ${t.textMuted}`}>
+                                            {priceCard.year} • {priceCard.brand} 
+                                            {priceCard.cardNumber && ` • #${priceCard.cardNumber}`}
+                                        </div>
+                                    </div>
+
+                                    {/* Price Input */}
+                                    <div>
+                                        <label className={`block text-sm font-medium ${t.text} mb-2`}>Market Price *</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-3 text-gray-400">$</span>
+                                            <input
+                                                type="text"
+                                                value={newPrice}
+                                                onChange={(e) => setNewPrice(e.target.value)}
+                                                placeholder="0.00"
+                                                className={`w-full pl-8 pr-4 py-3 ${t.input} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600`}
+                                            />
+                                        </div>
+                                        <div className={`text-xs ${t.textMuted} mt-1`}>
+                                            Enter the current market price you found (e.g., from 130point, eBay, etc.)
+                                        </div>
+                                    </div>
+
+                                    {/* Grade Selection */}
+                                    <div>
+                                        <label className={`block text-sm font-medium ${t.text} mb-2`}>Grade Information</label>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className={`block text-xs ${t.textMuted} mb-2`}>Grading Company</label>
+                                                <select
+                                                    value={priceGradeCompany}
+                                                    onChange={(e) => setPriceGradeCompany(e.target.value)}
+                                                    className={`w-full px-4 py-3 ${t.input} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600`}
+                                                >
+                                                    <option value="">Raw/Ungraded</option>
+                                                    <option value="PSA">PSA</option>
+                                                    <option value="BGS">BGS (Beckett)</option>
+                                                    <option value="SGC">SGC</option>
+                                                    <option value="CGC">CGC</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className={`block text-xs ${t.textMuted} mb-2`}>Grade</label>
+                                                <select
+                                                    value={priceGradeValue}
+                                                    onChange={(e) => setPriceGradeValue(e.target.value)}
+                                                    disabled={!priceGradeCompany}
+                                                    className={`w-full px-4 py-3 ${t.input} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50`}
+                                                >
+                                                    <option value="">Select Grade</option>
+                                                    <option value="10">10 - Gem Mint</option>
+                                                    <option value="9.5">9.5 - Mint+</option>
+                                                    <option value="9">9 - Mint</option>
+                                                    <option value="8.5">8.5 - NM-Mint+</option>
+                                                    <option value="8">8 - NM-Mint</option>
+                                                    <option value="7.5">7.5 - NM+</option>
+                                                    <option value="7">7 - Near Mint</option>
+                                                    <option value="Authentic">Authentic (Altered/No Grade)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Notes */}
+                                    <div>
+                                        <label className={`block text-sm font-medium ${t.text} mb-2`}>Notes (Optional)</label>
+                                        <textarea
+                                            value={priceNotes}
+                                            onChange={(e) => setPriceNotes(e.target.value)}
+                                            placeholder="e.g., Found on eBay, 130point average, recent auction..."
+                                            rows="3"
+                                            className={`w-full px-4 py-3 ${t.input} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600`}
+                                        />
+                                    </div>
+
+                                    {/* Timestamp Info */}
+                                    <div className={`${t.card} border ${t.cardBorder} rounded-lg p-3`}>
+                                        <div className={`text-xs ${t.textMuted}`}>
+                                            📅 This price will be recorded with today's date: {new Date().toLocaleDateString()}
+                                        </div>
+                                    </div>
+
+                                    {/* Action Buttons */}
+                                    <div className="flex gap-3 pt-4">
+                                        <button
+                                            onClick={addPriceRecord}
+                                            disabled={!newPrice}
+                                            className={`flex-1 ${t.buttonSuccess} text-white px-6 py-3 rounded-lg transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed`}
+                                        >
+                                            💾 Save Price Record
+                                        </button>
+                                        <button
+                                            onClick={() => setShowAddPriceModal(false)}
+                                            className={`${t.button} text-white px-6 py-3 rounded-lg transition-colors font-medium`}
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Add Variant Modal */}
+                    {showAddVariantModal && variantCard && (
+                        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4 overflow-y-auto">
+                            <div className={`${t.card} rounded-lg shadow-2xl max-w-2xl w-full my-8`}>
+                                <div className={`sticky top-0 ${t.card} border-b ${t.cardBorder} p-4 md:p-6 flex justify-between items-center rounded-t-lg`}>
+                                    <h2 className={`text-xl md:text-2xl font-bold ${t.text}`}>Add Card Variant</h2>
+                                    <button
+                                        onClick={() => setShowAddVariantModal(false)}
+                                        className={`${t.textMuted} hover:${t.text} text-3xl leading-none min-h-[44px] min-w-[44px] flex items-center justify-center`}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                
+                                <div className="p-4 md:p-6 space-y-4">
+                                    <div className={`${t.card} border ${t.cardBorder} rounded-lg p-4`}>
+                                        <div className={`font-semibold ${t.text} mb-1`}>{variantCard.description}</div>
+                                        <div className={`text-sm ${t.textMuted}`}>
+                                            Adding another copy in different condition/grade
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className={`block text-sm font-medium ${t.text} mb-2`}>Grade/Condition *</label>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className={`block text-xs ${t.textMuted} mb-2`}>Company</label>
+                                                <select
+                                                    value={variantGradeCompany}
+                                                    onChange={(e) => setVariantGradeCompany(e.target.value)}
+                                                    className={`w-full px-4 py-3 ${t.input} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600`}
+                                                >
+                                                    <option value="">Raw/Ungraded</option>
+                                                    <option value="PSA">PSA</option>
+                                                    <option value="BGS">BGS (Beckett)</option>
+                                                    <option value="SGC">SGC</option>
+                                                    <option value="CGC">CGC</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className={`block text-xs ${t.textMuted} mb-2`}>Grade</label>
+                                                <select
+                                                    value={variantGradeValue}
+                                                    onChange={(e) => setVariantGradeValue(e.target.value)}
+                                                    disabled={!variantGradeCompany}
+                                                    className={`w-full px-4 py-3 ${t.input} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 disabled:opacity-50`}
+                                                >
+                                                    <option value="">Select Grade</option>
+                                                    <option value="10">10 - Gem Mint</option>
+                                                    <option value="9.5">9.5 - Mint+</option>
+                                                    <option value="9">9 - Mint</option>
+                                                    <option value="8.5">8.5 - NM-Mint+</option>
+                                                    <option value="8">8 - NM-Mint</option>
+                                                    <option value="7.5">7.5 - NM+</option>
+                                                    <option value="7">7 - Near Mint</option>
+                                                    <option value="Authentic">Authentic</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className={`block text-sm font-medium ${t.text} mb-2`}>Quantity *</label>
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                value={variantQuantity}
+                                                onChange={(e) => setVariantQuantity(e.target.value)}
+                                                className={`w-full px-4 py-3 ${t.input} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600`}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className={`block text-sm font-medium ${t.text} mb-2`}>Purchase Price (Optional)</label>
+                                            <div className="relative">
+                                                <span className="absolute left-3 top-3 text-gray-400">$</span>
+                                                <input
+                                                    type="text"
+                                                    value={variantPurchasePrice}
+                                                    onChange={(e) => setVariantPurchasePrice(e.target.value)}
+                                                    placeholder="0.00"
+                                                    className={`w-full pl-8 pr-4 py-3 ${t.input} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600`}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className={`block text-sm font-medium ${t.text} mb-2`}>Notes (Optional)</label>
+                                        <textarea
+                                            value={variantNotes}
+                                            onChange={(e) => setVariantNotes(e.target.value)}
+                                            placeholder="Purchase location, condition notes, etc."
+                                            rows="3"
+                                            className={`w-full px-4 py-3 ${t.input} rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600`}
+                                        />
+                                    </div>
+
+                                    <div className="flex gap-3 pt-4">
+                                        <button
+                                            onClick={addVariant}
+                                            className={`flex-1 ${t.buttonSuccess} text-white px-6 py-3 rounded-lg transition-colors font-medium`}
+                                        >
+                                            ✅ Add Variant
+                                        </button>
+                                        <button
+                                            onClick={() => setShowAddVariantModal(false)}
+                                            className={`${t.button} text-white px-6 py-3 rounded-lg transition-colors font-medium`}
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
