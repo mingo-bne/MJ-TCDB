@@ -353,34 +353,33 @@
                     return;
                 }
 
+                // Create base card with first variant
                 const newCard = {
                     id: Date.now().toString(),
                     description: selectedCard ? selectedCard.description : searchInput,
                     year: selectedCard?.year || '',
                     brand: selectedCard?.brand || '',
+                    series: selectedCard?.series || '',
                     cardNumber: selectedCard?.cardNumber || '',
-                    serialNumber: selectedCard?.serialNumber || '',
                     imageUrl: selectedImageUrl || '',
                     dateAdded: new Date().toISOString(),
                     validated: !!selectedCard,
-                    // Card variants - different grades/conditions of same card
                     variants: [{
                         id: `${Date.now()}-1`,
-                        gradeCompany: grade ? (grade.includes('PSA') || grade.includes('BGS') ? grade.split(' ')[0] : '') : '',
+                        gradeCompany: grade ? (grade.match(/PSA|BGS|SGC|CGC/i)?.[0] || '') : '',
                         gradeValue: grade || 'Raw',
                         quantity: parseInt(quantity) || 1,
                         purchasePrice: purchasePrice || '',
                         purchaseDate: new Date().toISOString(),
                         notes: notes || '',
-                        isRaw: !grade || grade.toLowerCase().includes('raw')
+                        isRaw: !grade || !grade.match(/PSA|BGS|SGC|CGC/i)
                     }],
-                    priceHistory: [] // Market price tracking
+                    priceHistory: []
                 };
 
                 const updated = [...myCollection, newCard];
                 saveMyCollection(updated);
                 
-                // Reset form
                 resetForm();
                 setShowAddModal(false);
             };
@@ -1227,14 +1226,61 @@
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-300 mb-2">Grade (Optional)</label>
-                                        <input
-                                            type="text"
-                                            value={grade}
-                                            onChange={(e) => setGrade(e.target.value)}
-                                            placeholder="PSA 10, BGS 9.5, Raw, etc."
-                                            className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600"
-                                        />
+                                        <label className="block text-sm font-medium text-gray-300 mb-2">Grade/Condition (Optional)</label>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="block text-xs text-gray-400 mb-2">Company</label>
+                                                <select
+                                                    value={grade.match(/PSA|BGS|SGC|CGC/i)?.[0] || ''}
+                                                    onChange={(e) => {
+                                                        const company = e.target.value;
+                                                        if (!company) {
+                                                            setGrade('Raw');
+                                                        } else {
+                                                            const value = grade.match(/\d+\.?\d*/)?.[0] || '';
+                                                            setGrade(company + (value ? ' ' + value : ''));
+                                                        }
+                                                    }}
+                                                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-red-600"
+                                                >
+                                                    <option value="">Raw/Ungraded</option>
+                                                    <option value="PSA">PSA</option>
+                                                    <option value="BGS">BGS (Beckett)</option>
+                                                    <option value="SGC">SGC</option>
+                                                    <option value="CGC">CGC</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-xs text-gray-400 mb-2">Grade</label>
+                                                <select
+                                                    value={grade.match(/\d+\.?\d*|Authentic/)?.[0] || ''}
+                                                    onChange={(e) => {
+                                                        const company = grade.match(/PSA|BGS|SGC|CGC/i)?.[0] || '';
+                                                        const value = e.target.value;
+                                                        if (company && value) {
+                                                            setGrade(company + ' ' + value);
+                                                        } else if (value) {
+                                                            setGrade(value);
+                                                        }
+                                                    }}
+                                                    disabled={!grade || grade === 'Raw'}
+                                                    className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-red-600 disabled:opacity-50"
+                                                >
+                                                    <option value="">Select Grade</option>
+                                                    <option value="10">10 - Gem Mint</option>
+                                                    <option value="9.5">9.5 - Mint+</option>
+                                                    <option value="9">9 - Mint</option>
+                                                    <option value="8.5">8.5 - NM-Mint+</option>
+                                                    <option value="8">8 - NM-Mint</option>
+                                                    <option value="7.5">7.5 - NM+</option>
+                                                    <option value="7">7 - Near Mint</option>
+                                                    <option value="Authentic">Authentic</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="text-xs text-gray-400 mt-1">
+                                            Select grading company and grade, or leave as Raw/Ungraded
+                                        </div>
                                     </div>
 
                                     <div>
@@ -1246,6 +1292,20 @@
                                             rows="3"
                                             className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-600"
                                         />
+                                    </div>
+
+                                    {/* Info Box */}
+                                    <div className="bg-blue-900 bg-opacity-30 border border-blue-600 rounded-lg p-4">
+                                        <div className="flex items-start gap-3">
+                                            <div className="text-2xl">💡</div>
+                                            <div className="flex-1 text-sm">
+                                                <div className="font-semibold text-blue-300 mb-1">Adding Multiple Grades</div>
+                                                <p className="text-blue-200">
+                                                    This adds your first copy. To track the same card in different conditions (e.g., PSA 10, PSA 8, Raw), 
+                                                    click the card after adding to open details, then use "➕ Add Copy" button.
+                                                </p>
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <div className="flex gap-4 pt-4">
