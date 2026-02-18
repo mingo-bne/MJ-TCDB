@@ -613,6 +613,145 @@
                 updateCard(cardId, { variants: updatedVariants });
             };
 
+            // Export functions
+            const exportToCSV = () => {
+                // Create CSV with one row per variant
+                let csv = 'Card,Year,Brand,Card Number,Grade Company,Grade,Quantity,Purchase Price,Purchase Date,Notes,Validated\n';
+                
+                myCollection.forEach(card => {
+                    (card.variants || []).forEach(variant => {
+                        const row = [
+                            `"${card.description}"`,
+                            card.year || '',
+                            card.brand || '',
+                            card.cardNumber || '',
+                            variant.gradeCompany || 'Raw',
+                            variant.gradeValue || '',
+                            variant.quantity || 0,
+                            variant.purchasePrice || '',
+                            variant.purchaseDate ? new Date(variant.purchaseDate).toLocaleDateString() : '',
+                            `"${(variant.notes || '').replace(/"/g, '""')}"`,
+                            card.validated ? 'Yes' : 'No'
+                        ].join(',');
+                        csv += row + '\n';
+                    });
+                });
+
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `mj-collection-${new Date().toISOString().split('T')[0]}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            const exportToXLSX = async () => {
+                try {
+                    // Load SheetJS from CDN
+                    if (!window.XLSX) {
+                        const script = document.createElement('script');
+                        script.src = 'https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js';
+                        document.head.appendChild(script);
+                        await new Promise((resolve) => { script.onload = resolve; });
+                    }
+
+                    // Create workbook with two sheets: Summary and Details
+                    const wb = window.XLSX.utils.book_new();
+
+                    // Summary sheet (one row per card with totals)
+                    const summaryData = myCollection.map(card => {
+                        const totalQty = (card.variants || []).reduce((sum, v) => sum + (v.quantity || 0), 0);
+                        const totalCost = (card.variants || []).reduce((sum, v) => {
+                            const price = parseFloat(v.purchasePrice) || 0;
+                            return sum + (price * (v.quantity || 0));
+                        }, 0);
+                        
+                        return {
+                            'Card': card.description,
+                            'Year': card.year,
+                            'Brand': card.brand,
+                            'Card #': card.cardNumber,
+                            'Variants': (card.variants || []).length,
+                            'Total Qty': totalQty,
+                            'Total Cost': totalCost,
+                            'Validated': card.validated ? 'Yes' : 'No'
+                        };
+                    });
+                    const wsSummary = window.XLSX.utils.json_to_sheet(summaryData);
+                    window.XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary');
+
+                    // Details sheet (one row per variant)
+                    const detailsData = [];
+                    myCollection.forEach(card => {
+                        (card.variants || []).forEach(variant => {
+                            detailsData.push({
+                                'Card': card.description,
+                                'Year': card.year,
+                                'Brand': card.brand,
+                                'Card #': card.cardNumber,
+                                'Grade Company': variant.gradeCompany || 'Raw',
+                                'Grade': variant.gradeValue || '',
+                                'Quantity': variant.quantity || 0,
+                                'Purchase Price': variant.purchasePrice || '',
+                                'Purchase Date': variant.purchaseDate ? new Date(variant.purchaseDate).toLocaleDateString() : '',
+                                'Notes': variant.notes || '',
+                                'Validated': card.validated ? 'Yes' : 'No'
+                            });
+                        });
+                    });
+                    const wsDetails = window.XLSX.utils.json_to_sheet(detailsData);
+                    window.XLSX.utils.book_append_sheet(wb, wsDetails, 'Details');
+
+                    // Download
+                    window.XLSX.writeFile(wb, `mj-collection-${new Date().toISOString().split('T')[0]}.xlsx`);
+                } catch (error) {
+                    console.error('Export error:', error);
+                    alert('Error creating Excel file. Please try CSV export instead.');
+                }
+            };
+
+            const exportToGoogleSheets = () => {
+                // Create CSV content
+                let csv = 'Card,Year,Brand,Card Number,Grade Company,Grade,Quantity,Purchase Price,Purchase Date,Notes,Validated\n';
+                
+                myCollection.forEach(card => {
+                    (card.variants || []).forEach(variant => {
+                        const row = [
+                            `"${card.description}"`,
+                            card.year || '',
+                            card.brand || '',
+                            card.cardNumber || '',
+                            variant.gradeCompany || 'Raw',
+                            variant.gradeValue || '',
+                            variant.quantity || 0,
+                            variant.purchasePrice || '',
+                            variant.purchaseDate ? new Date(variant.purchaseDate).toLocaleDateString() : '',
+                            `"${(variant.notes || '').replace(/"/g, '""')}"`,
+                            card.validated ? 'Yes' : 'No'
+                        ].join(',');
+                        csv += row + '\n';
+                    });
+                });
+
+                // Copy to clipboard
+                navigator.clipboard.writeText(csv).then(() => {
+                    alert('✅ CSV data copied to clipboard!\n\nNext steps:\n1. Go to Google Sheets (sheets.google.com)\n2. Create a new spreadsheet\n3. Click cell A1\n4. Press Ctrl+V (or Cmd+V) to paste\n5. Data will populate automatically!');
+                    
+                    // Also download as CSV backup
+                    const blob = new Blob([csv], { type: 'text/csv' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `mj-collection-${new Date().toISOString().split('T')[0]}.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                }).catch(() => {
+                    alert('Could not copy to clipboard. CSV file will download instead.');
+                    exportToCSV();
+                });
+            };
+
             const checkPrice = (card) => {
                 // Simply open 130point.com main search page
                 window.open('https://130point.com/sales/', '_blank');
@@ -1014,58 +1153,95 @@
                         )}
 
                         {/* Export/Import */}
-                        <div className="mt-6 bg-gray-800 rounded-lg shadow-xl p-6">
-                            <h3 className="text-xl font-bold text-white mb-4">📊 Collection Management</h3>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <button
-                                    onClick={() => {
-                                        const data = JSON.stringify(myCollection, null, 2);
-                                        const blob = new Blob([data], { type: 'application/json' });
-                                        const url = URL.createObjectURL(blob);
-                                        const a = document.createElement('a');
-                                        a.href = url;
-                                        a.download = `mj-collection-${new Date().toISOString().split('T')[0]}.json`;
-                                        a.click();
-                                    }}
-                                    className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium"
-                                >
-                                    📥 Export Collection
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        const input = document.createElement('input');
-                                        input.type = 'file';
-                                        input.accept = 'application/json';
-                                        input.onchange = (e) => {
-                                            const file = e.target.files[0];
-                                            const reader = new FileReader();
-                                            reader.onload = (event) => {
-                                                try {
-                                                    const imported = JSON.parse(event.target.result);
-                                                    saveMyCollection(imported);
-                                                    alert('Collection imported successfully!');
-                                                } catch (error) {
-                                                    alert('Error importing collection.');
-                                                }
+                        <div className={`mt-6 ${t.card} rounded-lg shadow-xl p-6`}>
+                            <h3 className={`text-xl font-bold ${t.text} mb-4`}>📊 Collection Management</h3>
+                            
+                            {/* Export Options */}
+                            <div className="mb-6">
+                                <h4 className={`text-sm font-semibold ${t.text} mb-3`}>Export Collection</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                                    <button
+                                        onClick={() => {
+                                            const data = JSON.stringify(myCollection, null, 2);
+                                            const blob = new Blob([data], { type: 'application/json' });
+                                            const url = URL.createObjectURL(blob);
+                                            const a = document.createElement('a');
+                                            a.href = url;
+                                            a.download = `mj-collection-${new Date().toISOString().split('T')[0]}.json`;
+                                            a.click();
+                                            URL.revokeObjectURL(url);
+                                        }}
+                                        className={`${t.button} text-white px-4 py-3 rounded-lg transition-colors font-medium text-sm`}
+                                    >
+                                        📄 JSON
+                                    </button>
+                                    <button
+                                        onClick={exportToCSV}
+                                        className={`${t.buttonSuccess} text-white px-4 py-3 rounded-lg transition-colors font-medium text-sm`}
+                                    >
+                                        📊 CSV
+                                    </button>
+                                    <button
+                                        onClick={exportToXLSX}
+                                        className={`${t.buttonPrimary} text-white px-4 py-3 rounded-lg transition-colors font-medium text-sm`}
+                                    >
+                                        📈 Excel
+                                    </button>
+                                    <button
+                                        onClick={exportToGoogleSheets}
+                                        className={`${t.buttonPrimary} text-white px-4 py-3 rounded-lg transition-colors font-medium text-sm`}
+                                    >
+                                        📑 Google Sheets
+                                    </button>
+                                </div>
+                                <div className={`mt-2 text-xs ${t.textMuted}`}>
+                                    <strong>JSON:</strong> Full backup with all data • 
+                                    <strong> CSV:</strong> Spreadsheet compatible • 
+                                    <strong> Excel:</strong> 2 sheets (Summary + Details) • 
+                                    <strong> Google Sheets:</strong> Copy & paste ready
+                                </div>
+                            </div>
+
+                            {/* Import/Reset Options */}
+                            <div>
+                                <h4 className={`text-sm font-semibold ${t.text} mb-3`}>Import & Reset</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <button
+                                        onClick={() => {
+                                            const input = document.createElement('input');
+                                            input.type = 'file';
+                                            input.accept = 'application/json';
+                                            input.onchange = (e) => {
+                                                const file = e.target.files[0];
+                                                const reader = new FileReader();
+                                                reader.onload = (event) => {
+                                                    try {
+                                                        const imported = JSON.parse(event.target.result);
+                                                        saveMyCollection(imported);
+                                                        alert('Collection imported successfully!');
+                                                    } catch (error) {
+                                                        alert('Error importing collection.');
+                                                    }
+                                                };
+                                                reader.readAsText(file);
                                             };
-                                            reader.readAsText(file);
-                                        };
-                                        input.click();
-                                    }}
-                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
-                                >
-                                    📤 Import Collection
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        if (confirm('Reset your entire collection? This cannot be undone!')) {
-                                            saveMyCollection([]);
-                                        }
-                                    }}
-                                    className="px-6 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors font-medium"
-                                >
-                                    🔄 Reset Collection
-                                </button>
+                                            input.click();
+                                        }}
+                                        className={`${t.buttonSuccess} text-white px-6 py-3 rounded-lg transition-colors font-medium`}
+                                    >
+                                        📤 Import JSON
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            if (confirm('Reset your entire collection? This cannot be undone!')) {
+                                                saveMyCollection([]);
+                                            }
+                                        }}
+                                        className={`${t.buttonDanger} text-white px-6 py-3 rounded-lg transition-colors font-medium`}
+                                    >
+                                        🔄 Reset Collection
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
