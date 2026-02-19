@@ -443,7 +443,7 @@
                     return sum + variantTotal;
                 }, 0);
                 
-                const totalValue = myCollection.reduce((sum, card) => {
+                const totalCost = myCollection.reduce((sum, card) => {
                     const variantValue = (card.variants || []).reduce((vSum, v) => {
                         const price = parseFloat(v.purchasePrice) || 0;
                         return vSum + (price * (v.quantity || 0));
@@ -451,12 +451,44 @@
                     return sum + variantValue;
                 }, 0);
                 
+                // Current value (market value from price history or purchase cost)
+                const currentValue = myCollection.reduce((sum, card) => {
+                    let cardValue = 0;
+                    (card.variants || []).forEach(variant => {
+                        const qty = variant.quantity || 0;
+                        const gradeKey = variant.gradeCompany && variant.gradeCompany !== 'Raw'
+                            ? `${variant.gradeCompany} ${variant.gradeValue}`
+                            : 'Raw';
+                        
+                        // Find matching price history entry
+                        const matchingPrices = (card.priceHistory || []).filter(p => {
+                            const priceGrade = p.gradeCompany && p.gradeCompany !== 'Raw'
+                                ? `${p.gradeCompany} ${p.gradeValue}`
+                                : 'Raw';
+                            return priceGrade === gradeKey;
+                        });
+                        
+                        if (matchingPrices.length > 0) {
+                            // Use latest price entry
+                            const latestPrice = matchingPrices.sort((a, b) => 
+                                new Date(b.date) - new Date(a.date)
+                            )[0];
+                            cardValue += (latestPrice.price || 0) * qty;
+                        } else if (variant.purchasePrice) {
+                            // Use purchase cost
+                            cardValue += (parseFloat(variant.purchasePrice) || 0) * qty;
+                        }
+                    });
+                    return sum + cardValue;
+                }, 0);
+                
                 const validatedCards = myCollection.filter(card => card.validated).length;
                 
                 return {
                     uniqueCards: myCollection.length,
                     totalCards,
-                    totalValue: totalValue.toFixed(2),
+                    totalCost: totalCost.toFixed(2),
+                    currentValue: currentValue.toFixed(2),
                     validatedCards
                 };
             }, [myCollection]);
@@ -814,7 +846,7 @@
                                         </select>
                                     </div>
                                     {/* Stats */}
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
                                         <div className={`${t.stat} rounded-lg p-3`}>
                                             <div className={`text-2xl font-bold ${t.statText}`}>{stats.uniqueCards}</div>
                                             <div className={`${t.statLabel} text-xs`}>Unique</div>
@@ -824,8 +856,12 @@
                                             <div className={`${t.statLabel} text-xs`}>Total</div>
                                         </div>
                                         <div className={`${t.stat} rounded-lg p-3`}>
-                                            <div className={`text-2xl font-bold ${t.statText}`}>${stats.totalValue}</div>
-                                            <div className={`${t.statLabel} text-xs`}>Value</div>
+                                            <div className={`text-2xl font-bold text-blue-400`}>${stats.currentValue}</div>
+                                            <div className={`${t.statLabel} text-xs`}>Current</div>
+                                        </div>
+                                        <div className={`${t.stat} rounded-lg p-3`}>
+                                            <div className={`text-2xl font-bold text-green-400`}>${stats.totalCost}</div>
+                                            <div className={`${t.statLabel} text-xs`}>Cost</div>
                                         </div>
                                         <div className={`${t.stat} rounded-lg p-3`}>
                                             <div className={`text-2xl font-bold ${t.statText}`}>{stats.validatedCards}</div>
@@ -1063,7 +1099,9 @@
                                                     Brand {sortField === 'brand' && (sortDirection === 'asc' ? '▲' : '▼')}
                                                 </th>
                                                 <th className="px-4 py-3">Card #</th>
+                                                <th className="px-4 py-3" title="Breakdown by grade">Grades</th>
                                                 <th className="px-4 py-3 text-center" title="Total quantity across all grades">Total Qty</th>
+                                                <th className="px-4 py-3" title="Current market value (from price history) or purchase cost">Current Value</th>
                                                 <th className="px-4 py-3" title="Total investment across all variants">Total Cost</th>
                                                 <th className="px-4 py-3">Actions</th>
                                             </tr>
@@ -1076,6 +1114,47 @@
                                                     return sum + (price * (v.quantity || 0));
                                                 }, 0);
                                                 const variantCount = (card.variants || []).length;
+                                                
+                                                // Grade breakdown
+                                                const gradeBreakdown = {};
+                                                (card.variants || []).forEach(v => {
+                                                    const gradeKey = v.gradeCompany && v.gradeCompany !== 'Raw' 
+                                                        ? `${v.gradeCompany} ${v.gradeValue}` 
+                                                        : 'Raw';
+                                                    gradeBreakdown[gradeKey] = (gradeBreakdown[gradeKey] || 0) + (v.quantity || 0);
+                                                });
+                                                
+                                                // Current value calculation
+                                                let currentValue = 0;
+                                                let hasValue = false;
+                                                
+                                                (card.variants || []).forEach(variant => {
+                                                    const qty = variant.quantity || 0;
+                                                    const gradeKey = variant.gradeCompany && variant.gradeCompany !== 'Raw'
+                                                        ? `${variant.gradeCompany} ${variant.gradeValue}`
+                                                        : 'Raw';
+                                                    
+                                                    // Find matching price history entry for this grade
+                                                    const matchingPrices = (card.priceHistory || []).filter(p => {
+                                                        const priceGrade = p.gradeCompany && p.gradeCompany !== 'Raw'
+                                                            ? `${p.gradeCompany} ${p.gradeValue}`
+                                                            : 'Raw';
+                                                        return priceGrade === gradeKey;
+                                                    });
+                                                    
+                                                    if (matchingPrices.length > 0) {
+                                                        // Use latest price entry
+                                                        const latestPrice = matchingPrices.sort((a, b) => 
+                                                            new Date(b.date) - new Date(a.date)
+                                                        )[0];
+                                                        currentValue += (latestPrice.price || 0) * qty;
+                                                        hasValue = true;
+                                                    } else if (variant.purchasePrice) {
+                                                        // Use purchase cost
+                                                        currentValue += (parseFloat(variant.purchasePrice) || 0) * qty;
+                                                        hasValue = true;
+                                                    }
+                                                });
                                                 
                                                 return (
                                                 <tr key={card.id} className={`hover:bg-opacity-50 transition-colors cursor-pointer`} onClick={() => openCardDetail(card)}>
@@ -1098,8 +1177,28 @@
                                                     <td className={`px-4 py-3 text-sm ${t.textMuted}`}>{card.year}</td>
                                                     <td className={`px-4 py-3 text-sm ${t.textMuted}`}>{card.brand}</td>
                                                     <td className={`px-4 py-3 text-sm ${t.textMuted}`}>{card.cardNumber}</td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {Object.entries(gradeBreakdown).map(([grade, qty]) => (
+                                                                <span 
+                                                                    key={grade}
+                                                                    className={`text-xs px-2 py-1 rounded ${
+                                                                        grade === 'Raw' 
+                                                                            ? 'bg-gray-600 text-white' 
+                                                                            : 'bg-blue-600 text-white'
+                                                                    }`}
+                                                                    title={`${qty} card${qty > 1 ? 's' : ''} in ${grade}`}
+                                                                >
+                                                                    {grade}: {qty}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </td>
                                                     <td className={`px-4 py-3 text-center text-lg font-bold ${t.text}`}>
                                                         {totalQty}
+                                                    </td>
+                                                    <td className={`px-4 py-3 text-sm ${hasValue ? 'text-blue-400 font-semibold' : t.textMuted}`}>
+                                                        {hasValue ? `$${currentValue.toLocaleString()}` : 'N/A'}
                                                     </td>
                                                     <td className={`px-4 py-3 text-sm ${totalCost > 0 ? 'text-green-400 font-semibold' : t.textMuted}`}>
                                                         {totalCost > 0 ? `$${totalCost.toLocaleString()}` : '-'}
