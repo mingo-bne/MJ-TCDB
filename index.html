@@ -119,7 +119,7 @@
             const [imageSearchResults, setImageSearchResults] = useState([]);
             const [selectedImageUrl, setSelectedImageUrl] = useState('');
             const [currentImageCard, setCurrentImageCard] = useState(null);
-            const [theme, setTheme] = useState('clean'); // 'clean', 'liquid', 'titanium'
+            const [theme, setTheme] = useState('clean');
             const [showCardDetailModal, setShowCardDetailModal] = useState(false);
             const [detailCard, setDetailCard] = useState(null);
             const [showAddPriceModal, setShowAddPriceModal] = useState(false);
@@ -128,6 +128,12 @@
             const [priceGradeCompany, setPriceGradeCompany] = useState('');
             const [priceGradeValue, setPriceGradeValue] = useState('');
             const [priceNotes, setPriceNotes] = useState('');
+            
+            // Collection groups
+            const [collectionGroups, setCollectionGroups] = useState(['main', 'for-sale', 'for-trade']);
+            const [currentGroup, setCurrentGroup] = useState('main');
+            const [showGroupManager, setShowGroupManager] = useState(false);
+            const [newGroupName, setNewGroupName] = useState('');
             
             const searchInputRef = useRef(null);
 
@@ -153,8 +159,8 @@
                     text: 'text-slate-100',
                     textMuted: 'text-slate-400'
                 },
-                liquid: {
-                    name: 'Liquid Glass',
+                clear: {
+                    name: 'Clear',
                     header: 'bg-gradient-to-br from-cyan-500/20 via-blue-500/20 to-purple-500/20 backdrop-blur-xl border-b border-white/10',
                     headerText: 'text-white drop-shadow-lg',
                     headerSubtext: 'text-white/80',
@@ -230,7 +236,35 @@
                     // Use localStorage for standalone HTML files
                     const stored = localStorage.getItem('mj-my-collection');
                     if (stored) {
-                        setMyCollection(JSON.parse(stored));
+                        const collection = JSON.parse(stored);
+                        
+                        // Migrate variants to have collectionGroup if missing
+                        const migratedCollection = collection.map(card => ({
+                            ...card,
+                            variants: (card.variants || []).map(v => ({
+                                ...v,
+                                collectionGroup: v.collectionGroup || 'main'
+                            }))
+                        }));
+                        
+                        setMyCollection(migratedCollection);
+                        
+                        // Save if migrated
+                        if (JSON.stringify(collection) !== JSON.stringify(migratedCollection)) {
+                            localStorage.setItem('mj-my-collection', JSON.stringify(migratedCollection));
+                        }
+                    }
+                    
+                    // Load custom groups
+                    const storedGroups = localStorage.getItem('mj-collection-groups');
+                    if (storedGroups) {
+                        setCollectionGroups(JSON.parse(storedGroups));
+                    }
+                    
+                    // Load current group preference
+                    const storedCurrentGroup = localStorage.getItem('mj-current-group');
+                    if (storedCurrentGroup) {
+                        setCurrentGroup(storedCurrentGroup);
                     }
                 } catch (error) {
                     console.log('Starting fresh collection');
@@ -257,6 +291,93 @@
                     }
                 }
             };
+
+            // Group management functions
+            const switchGroup = (groupId) => {
+                setCurrentGroup(groupId);
+                localStorage.setItem('mj-current-group', groupId);
+            };
+
+            const createGroup = () => {
+                if (!newGroupName.trim()) {
+                    alert('Please enter a group name');
+                    return;
+                }
+                
+                const id = newGroupName.toLowerCase().replace(/\s+/g, '-');
+                
+                if (collectionGroups.includes(id)) {
+                    alert('A group with this name already exists');
+                    return;
+                }
+                
+                const updatedGroups = [...collectionGroups, id];
+                setCollectionGroups(updatedGroups);
+                localStorage.setItem('mj-collection-groups', JSON.stringify(updatedGroups));
+                
+                setNewGroupName('');
+            };
+
+            const deleteGroup = (groupId) => {
+                if (groupId === 'main') {
+                    alert('Cannot delete main group');
+                    return;
+                }
+                
+                // Check if any variants are in this group
+                const hasCards = myCollection.some(card => 
+                    (card.variants || []).some(v => v.collectionGroup === groupId)
+                );
+                
+                if (hasCards) {
+                    alert(`Cannot delete "${groupId}" - it contains cards. Move them first.`);
+                    return;
+                }
+                
+                if (!confirm(`Delete group "${groupId}"?`)) {
+                    return;
+                }
+                
+                const updatedGroups = collectionGroups.filter(g => g !== groupId);
+                setCollectionGroups(updatedGroups);
+                localStorage.setItem('mj-collection-groups', JSON.stringify(updatedGroups));
+                
+                if (currentGroup === groupId) {
+                    switchGroup('main');
+                }
+            };
+
+            const moveVariantToGroup = (cardId, variantId, targetGroup) => {
+                const updatedCollection = myCollection.map(card => {
+                    if (card.id === cardId) {
+                        return {
+                            ...card,
+                            variants: card.variants.map(v => {
+                                if (v.id === variantId) {
+                                    return { ...v, collectionGroup: targetGroup };
+                                }
+                                return v;
+                            })
+                        };
+                    }
+                    return card;
+                });
+                
+                saveMyCollection(updatedCollection);
+            };
+
+            // Filter collection by current group
+            const filteredByGroup = useMemo(() => {
+                return myCollection.map(card => ({
+                    ...card,
+                    variants: (card.variants || []).filter(v => 
+                        v.collectionGroup === currentGroup
+                    )
+                })).filter(card => card.variants.length > 0);
+            }, [myCollection, currentGroup]);
+
+            // Use filteredByGroup instead of myCollection for display
+            const displayCollection = filteredByGroup;
 
             const loadReferenceDB = async () => {
                 if (referenceDB) return; // Already loaded
@@ -372,7 +493,8 @@
                         purchasePrice: purchasePrice || '',
                         purchaseDate: new Date().toISOString(),
                         notes: notes || '',
-                        isRaw: !grade || !grade.match(/PSA|BGS|SGC|CGC/i)
+                        isRaw: !grade || !grade.match(/PSA|BGS|SGC|CGC/i),
+                        collectionGroup: currentGroup // Add to current group
                     }],
                     priceHistory: []
                 };
@@ -411,7 +533,7 @@
             };
 
             const filteredCollection = useMemo(() => {
-                let filtered = myCollection.filter(card =>
+                let filtered = displayCollection.filter(card =>
                     !filterText || 
                     card.description.toLowerCase().includes(filterText.toLowerCase()) ||
                     card.year.toLowerCase().includes(filterText.toLowerCase()) ||
@@ -435,15 +557,15 @@
                 });
 
                 return filtered;
-            }, [myCollection, filterText, sortField, sortDirection]);
+            }, [displayCollection, filterText, sortField, sortDirection]);
 
             const stats = useMemo(() => {
-                const totalCards = myCollection.reduce((sum, card) => {
+                const totalCards = displayCollection.reduce((sum, card) => {
                     const variantTotal = (card.variants || []).reduce((vSum, v) => vSum + (v.quantity || 0), 0);
                     return sum + variantTotal;
                 }, 0);
                 
-                const totalCost = myCollection.reduce((sum, card) => {
+                const totalCost = displayCollection.reduce((sum, card) => {
                     const variantValue = (card.variants || []).reduce((vSum, v) => {
                         const price = parseFloat(v.purchasePrice) || 0;
                         return vSum + (price * (v.quantity || 0));
@@ -452,7 +574,7 @@
                 }, 0);
                 
                 // Current value (market value from price history or purchase cost)
-                const currentValue = myCollection.reduce((sum, card) => {
+                const currentValue = displayCollection.reduce((sum, card) => {
                     let cardValue = 0;
                     (card.variants || []).forEach(variant => {
                         const qty = variant.quantity || 0;
@@ -482,16 +604,16 @@
                     return sum + cardValue;
                 }, 0);
                 
-                const validatedCards = myCollection.filter(card => card.validated).length;
+                const validatedCards = displayCollection.filter(card => card.validated).length;
                 
                 return {
-                    uniqueCards: myCollection.length,
+                    uniqueCards: displayCollection.length,
                     totalCards,
                     totalCost: totalCost.toFixed(2),
                     currentValue: currentValue.toFixed(2),
                     validatedCards
                 };
-            }, [myCollection]);
+            }, [displayCollection]);
 
             const searchCardImage = (card) => {
                 const query = `${card.year} ${card.brand} ${card.cardNumber} Michael Jordan card`.trim();
@@ -610,7 +732,8 @@
                     purchasePrice: variantPurchasePrice || '',
                     purchaseDate: new Date().toISOString(),
                     notes: variantNotes || '',
-                    isRaw: !variantGradeCompany || variantGradeCompany === 'Raw'
+                    isRaw: !variantGradeCompany || variantGradeCompany === 'Raw',
+                    collectionGroup: currentGroup // Add to current group
                 };
 
                 const updatedVariants = [...(variantCard.variants || []), newVariant];
@@ -648,10 +771,14 @@
             // Export functions
             const exportToCSV = () => {
                 // Create CSV with one row per variant
-                let csv = 'Card,Year,Brand,Card Number,Grade Company,Grade,Quantity,Purchase Price,Purchase Date,Notes,Validated\n';
+                let csv = 'Card,Year,Brand,Card Number,Grade Company,Grade,Quantity,Purchase Price,Purchase Date,Collection Group,Notes,Validated\n';
                 
                 myCollection.forEach(card => {
                     (card.variants || []).forEach(variant => {
+                        const groupName = variant.collectionGroup === 'main' ? 'Main Collection' :
+                                         variant.collectionGroup === 'for-sale' ? 'For Sale' :
+                                         variant.collectionGroup === 'for-trade' ? 'For Trade' :
+                                         variant.collectionGroup || 'Main Collection';
                         const row = [
                             `"${card.description}"`,
                             card.year || '',
@@ -662,6 +789,7 @@
                             variant.quantity || 0,
                             variant.purchasePrice || '',
                             variant.purchaseDate ? new Date(variant.purchaseDate).toLocaleDateString() : '',
+                            groupName,
                             `"${(variant.notes || '').replace(/"/g, '""')}"`,
                             card.validated ? 'Yes' : 'No'
                         ].join(',');
@@ -717,6 +845,10 @@
                     const detailsData = [];
                     myCollection.forEach(card => {
                         (card.variants || []).forEach(variant => {
+                            const groupName = variant.collectionGroup === 'main' ? 'Main Collection' :
+                                             variant.collectionGroup === 'for-sale' ? 'For Sale' :
+                                             variant.collectionGroup === 'for-trade' ? 'For Trade' :
+                                             variant.collectionGroup || 'Main Collection';
                             detailsData.push({
                                 'Card': card.description,
                                 'Year': card.year,
@@ -727,6 +859,7 @@
                                 'Quantity': variant.quantity || 0,
                                 'Purchase Price': variant.purchasePrice || '',
                                 'Purchase Date': variant.purchaseDate ? new Date(variant.purchaseDate).toLocaleDateString() : '',
+                                'Collection Group': groupName,
                                 'Notes': variant.notes || '',
                                 'Validated': card.validated ? 'Yes' : 'No'
                             });
@@ -745,10 +878,14 @@
 
             const exportToGoogleSheets = () => {
                 // Create CSV content
-                let csv = 'Card,Year,Brand,Card Number,Grade Company,Grade,Quantity,Purchase Price,Purchase Date,Notes,Validated\n';
+                let csv = 'Card,Year,Brand,Card Number,Grade Company,Grade,Quantity,Purchase Price,Purchase Date,Collection Group,Notes,Validated\n';
                 
                 myCollection.forEach(card => {
                     (card.variants || []).forEach(variant => {
+                        const groupName = variant.collectionGroup === 'main' ? 'Main Collection' :
+                                         variant.collectionGroup === 'for-sale' ? 'For Sale' :
+                                         variant.collectionGroup === 'for-trade' ? 'For Trade' :
+                                         variant.collectionGroup || 'Main Collection';
                         const row = [
                             `"${card.description}"`,
                             card.year || '',
@@ -759,6 +896,7 @@
                             variant.quantity || 0,
                             variant.purchasePrice || '',
                             variant.purchaseDate ? new Date(variant.purchaseDate).toLocaleDateString() : '',
+                            groupName,
                             `"${(variant.notes || '').replace(/"/g, '""')}"`,
                             card.validated ? 'Yes' : 'No'
                         ].join(',');
@@ -833,18 +971,19 @@
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-4">
-                                    {/* Theme Selector */}
-                                    <div className="relative">
-                                        <select
-                                            value={theme}
-                                            onChange={(e) => changeTheme(e.target.value)}
-                                            className={`px-3 py-2 ${t.button} ${t.text} rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-white/20 cursor-pointer`}
-                                        >
-                                            <option value="clean">🎨 Clean</option>
-                                            <option value="liquid">💎 Liquid Glass</option>
-                                            <option value="titanium">🔩 Titanium</option>
-                                        </select>
-                                    </div>
+                                    {/* Collection Group Button */}
+                                    <button
+                                        onClick={() => setShowGroupManager(true)}
+                                        className={`${t.stat} rounded-lg p-3 cursor-pointer hover:bg-opacity-80 transition-all`}
+                                    >
+                                        <div className="text-2xl mb-1">🗄️</div>
+                                        <div className={`${t.statText} text-sm font-semibold`}>
+                                            {currentGroup === 'main' ? 'Main' : 
+                                             currentGroup === 'for-sale' ? 'For Sale' : 
+                                             currentGroup === 'for-trade' ? 'For Trade' : currentGroup}
+                                        </div>
+                                        <div className={`${t.statLabel} text-xs`}>Collection</div>
+                                    </button>
                                     {/* Stats */}
                                     <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
                                         <div className={`${t.stat} rounded-lg p-3`}>
@@ -1802,6 +1941,12 @@
                                                                 <div className={`font-bold ${t.text}`}>
                                                                     Qty: {variant.quantity}
                                                                 </div>
+                                                                <div className="text-xs bg-purple-600 text-white px-2 py-0.5 rounded">
+                                                                    📁 {variant.collectionGroup === 'main' ? 'Main' : 
+                                                                        variant.collectionGroup === 'for-sale' ? 'For Sale' : 
+                                                                        variant.collectionGroup === 'for-trade' ? 'For Trade' : 
+                                                                        variant.collectionGroup || 'main'}
+                                                                </div>
                                                             </div>
                                                             {variant.purchasePrice && (
                                                                 <div className={`text-sm ${t.text} mb-1`}>
@@ -1816,6 +1961,35 @@
                                                             {variant.notes && (
                                                                 <div className={`text-sm ${t.text} italic mt-2`}>
                                                                     "{variant.notes}"
+                                                                </div>
+                                                            )}
+                                                            {/* Move to Group */}
+                                                            {collectionGroups.length > 1 && (
+                                                                <div className="mt-3 pt-2 border-t border-gray-600">
+                                                                    <div className={`text-xs ${t.textMuted} mb-1`}>Move to:</div>
+                                                                    <div className="flex gap-2 flex-wrap">
+                                                                        {collectionGroups
+                                                                            .filter(g => g !== (variant.collectionGroup || 'main'))
+                                                                            .map(groupId => {
+                                                                                const groupName = groupId === 'main' ? 'Main' : 
+                                                                                                 groupId === 'for-sale' ? 'For Sale' : 
+                                                                                                 groupId === 'for-trade' ? 'For Trade' : groupId;
+                                                                                return (
+                                                                                    <button
+                                                                                        key={groupId}
+                                                                                        onClick={() => {
+                                                                                            if (confirm(`Move this variant to "${groupName}"?`)) {
+                                                                                                moveVariantToGroup(detailCard.id, variant.id, groupId);
+                                                                                            }
+                                                                                        }}
+                                                                                        className={`px-2 py-1 ${t.button} text-white text-xs rounded`}
+                                                                                    >
+                                                                                        → {groupName}
+                                                                                    </button>
+                                                                                );
+                                                                            })
+                                                                        }
+                                                                    </div>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -2205,6 +2379,122 @@
                                             Cancel
                                         </button>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Group Manager Modal */}
+                    {showGroupManager && (
+                        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+                            <div className={`${t.card} rounded-lg shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col`}>
+                                <div className={`${t.card} border-b ${t.cardBorder} p-4 md:p-6 flex justify-between items-center flex-shrink-0`}>
+                                    <h2 className={`text-xl md:text-2xl font-bold ${t.text}`}>📁 Manage Collection Groups</h2>
+                                    <button
+                                        onClick={() => setShowGroupManager(false)}
+                                        className={`${t.textMuted} hover:${t.text} text-3xl leading-none`}
+                                    >
+                                        ×
+                                    </button>
+                                </div>
+                                
+                                <div className="p-4 md:p-6 space-y-4 overflow-y-auto flex-1">
+                                    {/* Create New Group */}
+                                    <div className={`${t.card} border ${t.cardBorder} rounded-lg p-4`}>
+                                        <h3 className={`text-lg font-semibold ${t.text} mb-3`}>Create New Group</h3>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={newGroupName}
+                                                onChange={(e) => setNewGroupName(e.target.value)}
+                                                placeholder="Enter group name (e.g., 'Grading Queue')..."
+                                                className={`flex-1 px-4 py-2 ${t.input} rounded-lg`}
+                                                onKeyPress={(e) => e.key === 'Enter' && createGroup()}
+                                            />
+                                            <button
+                                                onClick={createGroup}
+                                                className={`px-4 py-2 ${t.buttonSuccess} text-white rounded-lg`}
+                                            >
+                                                ➕ Create
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Existing Groups */}
+                                    <div>
+                                        <h3 className={`text-lg font-semibold ${t.text} mb-3`}>Your Groups</h3>
+                                        <div className="space-y-2">
+                                            {collectionGroups.map(groupId => {
+                                                const groupCards = myCollection.filter(card => 
+                                                    (card.variants || []).some(v => v.collectionGroup === groupId)
+                                                ).length;
+                                                const groupVariants = myCollection.reduce((sum, card) => 
+                                                    sum + (card.variants || []).filter(v => v.collectionGroup === groupId).length, 0
+                                                );
+                                                const groupName = groupId === 'main' ? 'Main Collection' : 
+                                                                 groupId === 'for-sale' ? 'For Sale' : 
+                                                                 groupId === 'for-trade' ? 'For Trade' : groupId;
+                                                
+                                                return (
+                                                    <div key={groupId} className={`${t.card} border ${t.cardBorder} rounded-lg p-4 flex items-center justify-between`}>
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-xl">📁</span>
+                                                                <span className={`font-semibold ${t.text}`}>{groupName}</span>
+                                                                {currentGroup === groupId && (
+                                                                    <span className="text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
+                                                                        Current
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className={`text-sm ${t.textMuted} mt-1`}>
+                                                                {groupCards} card{groupCards !== 1 ? 's' : ''} • {groupVariants} variant{groupVariants !== 1 ? 's' : ''}
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            {currentGroup !== groupId && (
+                                                                <button
+                                                                    onClick={() => { switchGroup(groupId); setShowGroupManager(false); }}
+                                                                    className={`px-3 py-1 ${t.buttonPrimary} text-white text-xs rounded`}
+                                                                >
+                                                                    Switch
+                                                                </button>
+                                                            )}
+                                                            {groupId !== 'main' && (
+                                                                <button
+                                                                    onClick={() => deleteGroup(groupId)}
+                                                                    className={`px-3 py-1 ${t.buttonDanger} text-white text-xs rounded`}
+                                                                >
+                                                                    🗑️
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    {/* Tips */}
+                                    <div className={`${t.card} border ${t.cardBorder} rounded-lg p-4`}>
+                                        <h4 className={`font-semibold ${t.text} mb-2`}>💡 How Groups Work</h4>
+                                        <ul className={`text-sm ${t.textMuted} space-y-1`}>
+                                            <li>• Each variant (copy) belongs to one group</li>
+                                            <li>• Same card can have copies in different groups</li>
+                                            <li>• Example: 2 raw copies - 1 in main, 1 for sale</li>
+                                            <li>• Move variants from card details view</li>
+                                            <li>• Stats show only current group</li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div className={`${t.card} border-t ${t.cardBorder} p-4 flex justify-end`}>
+                                    <button
+                                        onClick={() => setShowGroupManager(false)}
+                                        className={`px-6 py-2 ${t.button} text-white rounded-lg`}
+                                    >
+                                        Done
+                                    </button>
                                 </div>
                             </div>
                         </div>
