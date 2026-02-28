@@ -954,58 +954,58 @@
                 <div className="min-h-screen" style={{background: theme === 'liquid' ? 'linear-gradient(to bottom right, #0f172a, #1e3a8a, #581c87)' : ''}}>
                     {/* Header */}
                     <div className={`${t.header} shadow-lg sticky top-0 z-20`}>
-                        <div className="max-w-7xl mx-auto px-4 py-6">
-                            <div className="flex items-center justify-between flex-wrap gap-4">
-                                <div className="flex items-center gap-4">
+                        <div className="max-w-7xl mx-auto px-3 md:px-4 py-3 md:py-4">
+                            <div className="flex flex-col gap-2 md:gap-4">
+                                {/* Title Row - Compact on mobile */}
+                                <div className="flex items-center justify-between">
                                     <div>
-                                        <h1 className={`text-3xl md:text-4xl font-bold ${t.headerText} flex items-center`}>
-                                            <span className="mr-3">🏀</span>
-                                            My MJ Collection
+                                        <h1 className={`text-xl md:text-3xl font-bold ${t.headerText} flex items-center`}>
+                                            <span className="mr-2 text-2xl md:text-3xl">🏀</span>
+                                            <span className="hidden md:inline">My MJ Collection</span>
+                                            <span className="md:hidden">MJ Tracker</span>
                                         </h1>
-                                        <div className="flex items-center gap-3 mt-1">
-                                            <p className={`${t.headerSubtext} text-sm`}>Smart Card Tracker</p>
-                                            {saveStatus === 'saving' && <span className="text-yellow-300 text-xs animate-pulse">💾 Saving...</span>}
-                                            {saveStatus === 'saved' && <span className="text-green-300 text-xs">✓ Saved</span>}
-                                            {saveStatus === 'error' && <span className="text-red-300 text-xs">⚠️ Save failed</span>}
+                                        <div className="flex items-center gap-2 mt-0.5">
+                                            <p className={`${t.headerSubtext} text-xs hidden md:inline`}>Smart Card Tracker</p>
+                                            {saveStatus === 'saving' && <span className="text-yellow-300 text-xs animate-pulse">💾</span>}
+                                            {saveStatus === 'saved' && <span className="text-green-300 text-xs">✓</span>}
+                                            {saveStatus === 'error' && <span className="text-red-300 text-xs">⚠️</span>}
                                         </div>
                                     </div>
-                                </div>
-                                <div className="flex items-center gap-4">
-                                    {/* Collection Group Button */}
+                                    {/* Collection Group Button - Smaller on mobile */}
                                     <button
                                         onClick={() => setShowGroupManager(true)}
-                                        className={`${t.stat} rounded-lg p-3 cursor-pointer hover:bg-opacity-80 transition-all`}
+                                        className={`${t.stat} rounded-lg p-2 md:p-3 cursor-pointer hover:bg-opacity-80 transition-all`}
                                     >
-                                        <div className="text-2xl mb-1">🗄️</div>
-                                        <div className={`${t.statText} text-sm font-semibold`}>
+                                        <div className="text-lg md:text-2xl mb-0.5 md:mb-1">🗄️</div>
+                                        <div className={`${t.statText} text-xs md:text-sm font-semibold whitespace-nowrap`}>
                                             {currentGroup === 'main' ? 'Main' : 
-                                             currentGroup === 'for-sale' ? 'For Sale' : 
-                                             currentGroup === 'for-trade' ? 'For Trade' : currentGroup}
+                                             currentGroup === 'for-sale' ? 'Sale' : 
+                                             currentGroup === 'for-trade' ? 'Trade' : currentGroup}
                                         </div>
-                                        <div className={`${t.statLabel} text-xs`}>Collection</div>
+                                        <div className={`${t.statLabel} text-[10px] md:text-xs hidden md:block`}>Collection</div>
                                     </button>
-                                    {/* Stats */}
-                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-center">
-                                        <div className={`${t.stat} rounded-lg p-3`}>
-                                            <div className={`text-2xl font-bold ${t.statText}`}>{stats.uniqueCards}</div>
-                                            <div className={`${t.statLabel} text-xs`}>Unique</div>
-                                        </div>
-                                        <div className={`${t.stat} rounded-lg p-3`}>
-                                            <div className={`text-2xl font-bold ${t.statText}`}>{stats.totalCards}</div>
-                                            <div className={`${t.statLabel} text-xs`}>Total</div>
-                                        </div>
-                                        <div className={`${t.stat} rounded-lg p-3`}>
-                                            <div className={`text-2xl font-bold text-blue-400`}>${stats.currentValue}</div>
-                                            <div className={`${t.statLabel} text-xs`}>Current</div>
-                                        </div>
-                                        <div className={`${t.stat} rounded-lg p-3`}>
-                                            <div className={`text-2xl font-bold text-green-400`}>${stats.totalCost}</div>
-                                            <div className={`${t.statLabel} text-xs`}>Cost</div>
-                                        </div>
-                                        <div className={`${t.stat} rounded-lg p-3`}>
-                                            <div className={`text-2xl font-bold ${t.statText}`}>{stats.validatedCards}</div>
-                                            <div className={`${t.statLabel} text-xs`}>Valid</div>
-                                        </div>
+                                </div>
+                                {/* Stats Row - Compact grid on mobile */}
+                                <div className="grid grid-cols-5 gap-1.5 md:gap-3 text-center">
+                                    <div className={`${t.stat} rounded-lg p-1.5 md:p-3`}>
+                                        <div className={`text-base md:text-2xl font-bold ${t.statText}`}>{stats.uniqueCards}</div>
+                                        <div className={`${t.statLabel} text-[10px] md:text-xs`}>Unique</div>
+                                    </div>
+                                    <div className={`${t.stat} rounded-lg p-1.5 md:p-3`}>
+                                        <div className={`text-base md:text-2xl font-bold ${t.statText}`}>{stats.totalCards}</div>
+                                        <div className={`${t.statLabel} text-[10px] md:text-xs`}>Total</div>
+                                    </div>
+                                    <div className={`${t.stat} rounded-lg p-1.5 md:p-3`}>
+                                        <div className={`text-base md:text-2xl font-bold text-blue-400`}>${stats.currentValue}</div>
+                                        <div className={`${t.statLabel} text-[10px] md:text-xs`}>Current</div>
+                                    </div>
+                                    <div className={`${t.stat} rounded-lg p-1.5 md:p-3`}>
+                                        <div className={`text-base md:text-2xl font-bold text-green-400`}>${stats.totalCost}</div>
+                                        <div className={`${t.statLabel} text-[10px] md:text-xs`}>Cost</div>
+                                    </div>
+                                    <div className={`${t.stat} rounded-lg p-1.5 md:p-3`}>
+                                        <div className={`text-base md:text-2xl font-bold ${t.statText}`}>{stats.validatedCards}</div>
+                                        <div className={`${t.statLabel} text-[10px] md:text-xs`}>Valid</div>
                                     </div>
                                 </div>
                             </div>
